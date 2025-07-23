@@ -1,0 +1,12 @@
+.idea
+pythonProject
+.vscode
+__pycache__
+*.so
+bazel-*
+*.egg-info
+ignore/*
+*.ipynb_checkpoints*
+tutorials/trash
+tutorials/tmp_trainer
+_version.py
