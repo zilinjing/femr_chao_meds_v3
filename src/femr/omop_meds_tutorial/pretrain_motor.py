@@ -8,8 +8,8 @@ import pickle
 import datasets
 import femr.models.tokenizer
 import femr.models.processor
-from .generate_labels import create_omop_meds_tutorial_arg_parser
-
+from femr.omop_meds_tutorial.generate_labels import create_omop_meds_tutorial_arg_parser
+import torch.nn as nn
 
 class CustomEarlyStoppingCallback(transformers.EarlyStoppingCallback):
     def check_metric_value(self, args, state, control, metric_value):
@@ -30,6 +30,13 @@ def create_arg_parser():
     arg_parser.add_argument(
         "--checkpoint_dir",
         dest="checkpoint_dir",
+        type=str,
+        default=None
+    )
+
+    arg_parser.add_argument(
+        "--output_dir",
+        dest="output_dir",
         type=str,
         default=None
     )
@@ -65,6 +72,9 @@ def create_arg_parser():
     )
     return arg_parser
 
+def count_parameters(model: nn.Module) -> int:
+    """Counts the number of trainable parameters in a model."""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def main():
     args = create_arg_parser().parse_args()
@@ -78,15 +88,18 @@ def main():
     tokenizer = femr.models.tokenizer.HierarchicalTokenizer.from_pretrained(
         tokenizer_path, ontology=ontology
     )
+    print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
 
     task_path = pretraining_data / 'motor_task.pkl'
     with open(task_path, 'rb') as f:
         motor_task = pickle.load(f)
-
+    print(f"Motor task: {motor_task}")
+    print(f"Motor task length: {len(motor_task.pretraining_task_codes)}")
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, motor_task)
 
     train_batches_path = pretraining_data / 'train_batches'
     train_batches = datasets.Dataset.load_from_disk(str(train_batches_path))
+    print(f"Train batches length: {len(train_batches)}, batch : {train_batches}")
 
     val_batches_path = pretraining_data / 'val_batches'
     val_batches = datasets.Dataset.load_from_disk(str(val_batches_path))
@@ -107,11 +120,17 @@ def main():
         motor_task.get_task_config()
     )
 
-    model = femr.models.transformer.FEMRModel(config)
-    model = model.to(torch.device("cuda"))
+    print(f"Transformer config: {transformer_config}")
+    model = femr.models.transformer.FEMRModel(config,attn_implementation="flash_attention_2")
+    model = model.to(torch.device("cuda:0"))
+
+
+    print(f"Model param count: {count_parameters(model)}")
 
     learning_rate = args.learning_rate
-    output_dir = 'tmp_trainer_' + sys.argv[1]
+    # output_dir = 'tmp_trainer_' + sys.argv[1]
+    output_dir = args.output_dir
+    # print(args.per_device_train_batch_size)
     trainer_config = transformers.TrainingArguments(
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
@@ -123,10 +142,11 @@ def main():
 
         weight_decay=0.1,
         adam_beta2=0.95,
-
-        report_to=["tensorboard"],
-
+        report_to="none",
+        # report_to=["wandb"],
+        # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
+        ddp_find_unused_parameters=False,
 
         warmup_steps=500,
 
@@ -134,16 +154,21 @@ def main():
         logging_steps=10,
 
         save_strategy='epoch',
-        evaluation_strategy='epoch',
+        eval_strategy='epoch',
+        # evaluation_strategy='epoch',
 
         # prediction_loss_only=True,
-        dataloader_num_workers=12,
+        # dataloader_num_workers=1,
+        dataloader_num_workers=32,
 
         save_total_limit=10,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
     )
+    print(f"CONFIRMATION: The actual per_device_train_batch_size is {trainer_config.per_device_train_batch_size}")
+
+
 
     trainer = transformers.Trainer(
         model=model,
@@ -153,6 +178,7 @@ def main():
         args=trainer_config,
         callbacks=[CustomEarlyStoppingCallback(early_stopping_patience=1, early_stopping_threshold=0.001)],
     )
+
     train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
     trainer.log_metrics("train", train_result.metrics)
     trainer.save_metrics("train", train_result.metrics)
@@ -161,3 +187,39 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# python -u -m femr.omop_meds_tutorial.pretrain_motor \
+#   --pretraining_data $PRETRAINING_DATA \
+#   --meds_reader $OMOP_MEDS_READER
+
+'''
+40 hours
+CUDA_VISIBLE_DEVICES=5 python pretrain_motor.py \
+  --pretraining_data /user/zj2398/cache/motor \
+  --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /user/zj2398/cache/motor/output
+
+  17.5
+
+CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 accelerate launch \
+  --num_processes 6 \
+  --mixed_precision bf16 \
+  --gpu_ids "2,3,4,5,6,7" \
+  pretrain_motor.py \
+  --pretraining_data /user/zj2398/cache/motor \
+  --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /user/zj2398/cache/motor/output_ddp
+
+accelerate launch \
+  --num_processes 1 \
+  --mixed_precision bf16 \
+  --gpu_ids "5" \
+  pretrain_motor.py \
+  --pretraining_data /user/zj2398/cache/motor \
+  --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /user/zj2398/cache/motor/output_ddp
+'''

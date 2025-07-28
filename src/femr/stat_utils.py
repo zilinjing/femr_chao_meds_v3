@@ -8,6 +8,7 @@ class OnlineStatistics:
     """
     A class for computing online statistics such as mean and variance.
     From https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance.
+    Welford's online algorithm: we don't need to store all the values, we can just store the mean and variance and update them as we go.
     """
 
     count: float
@@ -25,6 +26,8 @@ class OnlineStatistics:
     def add(self, weight: float, value: float) -> None:
         """
         Add an observation to the calculation.
+        for a new value with weight, we update the count,mean and variance as follows:
+        
         """
         self.count += weight
         delta = value - self.current_mean

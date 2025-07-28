@@ -409,16 +409,19 @@ class HierarchicalTokenizer(transformers.utils.PushToHubMixin):
             for parent in self.ontology.get_all_parents(event.code)
             if parent in self.code_lookup
         ]
+        
         weights = [1 / len(codes) for _ in codes]
-
+        # print(f"event: {event}")
+        # print(f"before appending, codes: {codes}, weights: {weights}")
         for k, v in event:
+            # print(f"k: {k}, v: {v}")
             if k in self.numeric_indices and ((possib_float := try_float(v)) is not None):
                 codes.append(self.numeric_indices[k][bisect.bisect(self.numeric_values[k], possib_float)])
                 weights.append(1)
             elif k in self.string_lookup and ((possib_value := self.string_lookup[k].get(v)) is not None):
                 codes.append(possib_value)
                 weights.append(1)
-
+        # print(f"after get_feature_codes, codes: {codes}, weights: {weights}")
         return codes, weights
 
 

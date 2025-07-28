@@ -173,8 +173,10 @@ class BatchCreator:
                 per_subject_hierarchical_tokens.extend(features)
                 per_subject_hierarchical_weights.extend(weights)
 
+        # Purpose: capture all pre‑birth or “person” table codes as a single initial timestep.
         per_subject_token_indices.append(len(per_subject_hierarchical_tokens))
-        per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
+        # per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
+        per_subject_ages.append((birth - birth) / datetime.timedelta(days=1))
         per_subject_time_data.append([1, 0, 0, 0, 0])
         per_subject_timestamps.append(event.time.replace(tzinfo=datetime.timezone.utc).timestamp())
                 
@@ -198,6 +200,7 @@ class BatchCreator:
 
             # Get features and weights for the current event
             features, weights = self.tokenizer.get_feature_codes(event)
+            # print(f"for event {event} features: {features}, weights: {weights}")
 
             # Ignore events with no features
             if len(features) == 0:
@@ -209,10 +212,14 @@ class BatchCreator:
 
             codes_seen_today |= set(features)
 
+            # don't understand
             if (self.task is not None) and (last_time is not None):
                 # Now we have to consider whether or not to have labels for this time step
                 # The add_event function returns how many labels to assign for this time
                 if subsample_task_fraction == 1 or random.random() < subsample_task_fraction:
+                    #Ask the task how many labels to place at the previous timestep index. 
+                    # num_added = 0/1, depneding on if there is still future tte event to predict
+                    #Append that many copies of the current age‐index into per_subject_label_indices
                     num_added = self.task.add_event(last_time, event.time, features, actually_add=actually_add)
                     for _ in range(num_added):
                         per_subject_label_indices.append(len(per_subject_ages) - 1)
@@ -224,10 +231,12 @@ class BatchCreator:
                 assert weights is not None
                 per_subject_hierarchical_tokens.extend(features)
                 per_subject_hierarchical_weights.extend(weights)
-                per_subject_token_indices.append(len(per_subject_hierarchical_tokens))
+
+                per_subject_token_indices.append(len(per_subject_hierarchical_tokens)) 
 
             per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
 
+            # update time_data
             if last_time is None:
                 per_subject_time_data.append([-1] + self.tokenizer.get_time_data(age, delta)[:2] + [0, 0])
             else:
@@ -237,6 +246,7 @@ class BatchCreator:
 
             last_time = event.time
 
+        # add labels for the last time step
         if self.task is not None and last_time is not None and last_time.date() > birth.date():
             num_added = self.task.add_event(last_time, None, None)
             for _ in range(num_added):
@@ -453,7 +463,11 @@ class FEMRBatchProcessor:
 
     def collate(self, batches: List[Mapping[str, Any]]) -> Mapping[str, Any]:
         """A collate function that prepares batches for being fed into a dataloader."""
-        assert len(batches) == 1, "Can only have one batch when collating"
+        # if len(batches) > 1:
+        # print(f"collate batches: {len(batches)}")
+        # print(f"the batch 0 is {batches[0]}")
+        # print(f"the batch 1 is {batches[1]}")
+        # assert len(batches) == 1, "Can only have one batch when collating"
         return {"batch": _add_dimension(self.creator.cleanup_batch(batches[0]))}
 
     def convert_dataset(

@@ -194,15 +194,15 @@ class SurvivalCalculator:
             self, ontology: femr.ontology.Ontology, subject: meds_reader.Subject,
             code_whitelist: Optional[Set[str]] = None
     ):
-        self.survival_events = []
+        self.survival_events = []  # a list of tuples, each tuple is a code and a time (lab/10, 2025-01-01)
         self.final_date = subject.events[-1].time
-        self.future_times = collections.defaultdict(list)
+        self.future_times = collections.defaultdict(list)   # a dictionary of lists, key is the code, value is a list of happened times
 
         for event in subject.events:
             if event.time is None:
                 continue
-            if event.code.split('/')[0] in ('LAB', 'MEDICATION', 'INFUSION_START', 'INFUSION_END'):
-                continue
+            # if event.code.split('/')[0] in ('LAB', 'MEDICATION', 'INFUSION_START', 'INFUSION_END'):
+            #     continue
             if event.numeric_value is not None or event.text_value is not None:
                 continue
             codes = set()
@@ -219,6 +219,7 @@ class SurvivalCalculator:
 
         self.survival_events.reverse()
 
+    # Advancing the cursor: removes any past or current events so that only future ones remain in future_times.
     def get_future_events_for_time(
             self, time: datetime.datetime
     ) -> Tuple[datetime.timedelta, Mapping[str, datetime.timedelta]]:
@@ -241,22 +242,28 @@ def _prefit_motor_map(
     task_time_stats: List[Any] = [[0, 0, femr.stat_utils.OnlineStatistics()] for _ in range(len(tasks))]
     event_times = femr.stat_utils.ReservoirSampler(100_000)
     task_set = set(tasks)
+    print(f"task_set length: {len(task_set)}")
 
+    # print(f"subject has {len(list(subjects))} objects.")
     for subject in subjects:
         calculator = SurvivalCalculator(ontology, subject, task_set)
-
+        # print(f"calculator: {calculator}")
+        # print(for )
         birth = femr.pat_utils.get_subject_birthdate(subject)
 
         for event, next_event in zip(subject.events, subject.events[1:]):
-            if (event.time is None) or (event.time.date() == birth.date()) or (
-                    event.time.date() == next_event.time.date()):
+            # 1) Skip any “birth”‐day events or events with missing times
+            if (event.time is None) or (event.time.date() == birth.date()) or (event.time.date() == next_event.time.date()):
                 continue
-
+            
+              # 2) Ask the calculator: 
+                #    - `censor_time`: time until end‐of‐record
+                #    - `tte`: dict of per‐code next‐event deltas
             censor_time, tte = calculator.get_future_events_for_time(event.time)
 
             if len(tte) == 0:
                 continue
-
+            
             for i, task in enumerate(tasks):
                 if task in tte:
                     time = tte[task]
@@ -271,11 +278,15 @@ def _prefit_motor_map(
                     event_times.add(time.total_seconds(), 1)
                     task_time_stats[i][1] += 1
                 task_time_stats[i][2].add(1, time.total_seconds())
-
+    # print(f"after subject {subject.subject_id}, task_time_stats: {task_time_stats}")
+    print(f"prefit_motor_map is done")
     return (event_times, task_time_stats)
 
 
 def _prefit_motor_agg(first: Any, second: Any) -> Any:
+    # first/second is (event_times, task_time_stats)
+    # for event_times, we use .combine() to add second group of elements to first group
+    # for task_time_stats, we add the number of events/censoring times, and combine the two groups of elements
     for a, b in zip(first[1], second[1]):
         a[0] += b[0]
         a[1] += b[1]
@@ -308,10 +319,18 @@ class MOTORTask(Task):
         if len(tasks) < num_tasks:
             warnings.warn(f"Could not find enough tasks in the provided tokenizer {len(tasks)}")
 
+        # print(f"tasks: {tasks}")
+        # apply _prefit_motor_map(subjects, tasks=tasks, ontology=tokenizer.ontology) and then use _prefit_motor_agg to aggregate the results
+        print("before functools.reduce")
         length_samples, stats = functools.reduce(
             _prefit_motor_agg, db.map(functools.partial(_prefit_motor_map, tasks=tasks, ontology=tokenizer.ontology))
         )
 
+        # print(f"length_samples samples: {length_samples.samples}")
+        # print(f"length_samples mean: {length_samples.mean()}")
+        # print(f"stats: {stats}")
+
+        # percentile of a distribution with mean and std comuted from all time to next event
         time_bins = np.percentile(length_samples.samples, np.linspace(0, 100, num_bins + 1))
         time_bins[0] = 0
         time_bins[-1] = float("inf")
@@ -321,7 +340,7 @@ class MOTORTask(Task):
 
         for task, task_stats in zip(tasks, stats):
             frac_events = task_stats[1] / (task_stats[0] + task_stats[1])
-            rate = frac_events / task_stats[2].mean()
+            rate = frac_events / task_stats[2].mean()  # happening rate of the task num_points/time
 
             if rate == 0:
                 print("Ran into task of rate 0?", task, frac_events, task_stats[0], task_stats[1], task_stats[2].mean())

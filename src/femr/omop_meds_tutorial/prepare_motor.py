@@ -21,9 +21,11 @@ def main(args):
         codes_to_skip = codes_to_skip["code"].to_list()
 
 
-    with meds_reader.SubjectDatabase(str(meds_reader_path), num_threads=32) as database:
+    with meds_reader.SubjectDatabase(str(meds_reader_path), num_threads=args.num_threads) as database:
         subject_ids = [_ for _ in database]
+        print(f"subject_ids length: {len(subject_ids)}")
         ontology_path = pretraining_data_path / 'ontology.pkl'
+        print(f"ontology_path: {ontology_path}")
         if not ontology_path.exists():
             print("Creating ontology")
             ontology = femr.ontology.Ontology(args.athena_path, code_metadata_path=str(code_metadata_path))
@@ -37,6 +39,7 @@ def main(args):
             with open(ontology_path, 'wb') as f:
                 pickle.dump(ontology, f)
         else:
+            print("Loading ontology")
             with open(ontology_path, 'rb') as f:
                 ontology = pickle.load(f)
 
@@ -64,6 +67,7 @@ def main(args):
             # Save the tokenizer to the same directory as the model
             tokenizer.save_pretrained(tokenizer_path)
         else:
+            print("Loading tokenizer")
             tokenizer = HierarchicalTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
 
         task_path = pretraining_data_path / 'motor_task.pkl'
@@ -87,6 +91,7 @@ def main(args):
             with open(task_path, 'rb') as f:
                 motor_task = pickle.load(f)
 
+        # print(f"Motor task length: {len(motor_task.pretraining_task_codes)}")
         processor = femr.models.processor.FEMRBatchProcessor(tokenizer, motor_task)
 
         example_subject_id = list(train_database)[0]
@@ -95,13 +100,17 @@ def main(args):
         # We can do this one subject at a time
         print("Convert a single subject")
         example_batch = processor.collate([processor.convert_subject(example_subject, tensor_type='pt')])
+        # print(f"example subject_id {example_subject_id} , example_subject: {example_subject}")
+        # print(f"example_batch keys: {example_batch['batch'].keys()}")
+        # for key in example_batch['batch'].keys():
+        #     print(f"example_batch[{key}], shape: {example_batch['batch'][key].shape}, values: {example_batch['batch'][key]}")
 
         train_batches_path = pretraining_data_path / 'train_batches'
 
         if not train_batches_path.exists():
             print("Convert batches")
             # But generally we want to convert entire datasets
-            train_batches = processor.convert_dataset(train_database, tokens_per_batch=args.tokens_per_batch, num_proc=32)
+            train_batches = processor.convert_dataset(train_database, tokens_per_batch=args.tokens_per_batch, num_proc=128)
 
             print("Convert batches to pytorch")
             # Convert our batches to pytorch tensors
@@ -112,7 +121,7 @@ def main(args):
 
         if not val_batches_path.exists():
             print("Convert val batches")
-            val_batches = processor.convert_dataset(val_database, tokens_per_batch=args.tokens_per_batch, num_proc=32)
+            val_batches = processor.convert_dataset(val_database, tokens_per_batch=args.tokens_per_batch, num_proc=128)
             # Convert our batches to pytorch tensors
             val_batches.set_format("pt")
             val_batches.save_to_disk(val_batches_path)
@@ -167,3 +176,12 @@ def create_omop_meds_tutorial_argparser():
 
 if __name__ == "__main__":
     main(create_omop_meds_tutorial_argparser().parse_args())
+
+'''
+python prepare_motor.py \
+  --pretraining_data /user/zj2398/cache/motor \
+  --athena_path " " \
+  --num_threads 100 \
+  --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader 
+#   > out.log 2>&1  
+'''
