@@ -500,3 +500,33 @@ class MOTORTask(Task):
         is_event = torch.transpose(is_event, 0, 1).contiguous()
 
         return {"is_event": is_event, "log_time": log_time}
+        # Debug: Check for all-false bins during generation
+        # all_bins_false = ~torch.any(is_event, dim=1)  # [prediction_points, tasks]
+        # if torch.any(all_bins_false):
+        #     all_false_count = torch.sum(all_bins_false)
+        #     print(f"DEBUG (Generation): Found {all_false_count} prediction_point×task combinations where all time bins are False")
+            
+        #     # Find specific indices where this happens
+        #     all_false_indices = torch.where(all_bins_false)
+        #     prediction_points = all_false_indices[0]
+        #     task_indices = all_false_indices[1]
+            
+        #     print(f"DEBUG (Generation): First 10 all-false cases:")
+        #     for i in range(min(10, len(prediction_points))):
+        #         pred_idx = prediction_points[i].item()
+        #         task_idx = task_indices[i].item()
+        #         print(f"  Prediction point {pred_idx}, task {task_idx}: {is_event[pred_idx, :, task_idx]}")
+                
+        #         # Also show the corresponding time information
+        #         time_vals = time[pred_idx, task_idx].item()
+        #         censor_time_val = batch["censor_time"][pred_idx].item()
+        #         print(f"    Time: {time_vals}, Censor time: {censor_time_val}")
+        #         print(f"    Time bins: {self.time_bins}")
+                
+        #         # Check which bins this time falls into
+        #         for bin_idx, (start, end) in enumerate(zip(self.time_bins, self.time_bins[1:])):
+        #             if time_vals == 0:
+        #                 print(f"    Time is 0 (no event) - should be censored case")
+        #             elif start <= time_vals < end:
+        #                 print(f"    Time {time_vals} falls in bin {bin_idx} [{start}, {end})")
+

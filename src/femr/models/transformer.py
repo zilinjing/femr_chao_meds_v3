@@ -226,7 +226,7 @@ class MOTORTaskHead(nn.Module):
         self.final_layer = nn.Linear(hidden_size, self.num_time_bins * final_layer_size)
 
         self.task_layer = nn.Linear(self.final_layer_size, self.num_tasks)
-        self.softmax = nn.Softmax(dim=[1])
+        self.softmax = nn.Softmax(dim=1)
         start_bias = torch.log2(torch.tensor([a[1] for a in pretraining_task_info], dtype=torch.float32))
         self.task_layer.bias.data = start_bias
 
@@ -241,14 +241,14 @@ class MOTORTaskHead(nn.Module):
 
         # take the softmaxof the logits over the time bins, assume indenpendence between different event types conditional previous embeddings
         # time_dependent_logits: prediction_points*time_bins *event_types  [716, 8, 6100]
-        time_dependent_logits = self.softmax(self.task_layer(self.norm(time_independent_features)))
-            
+        time_dependent_logits = self.softmax(nn.Sigmoid(self.task_layer(self.norm(time_independent_features))))
+        assert torch.allclose(sum(time_dependent_logits[0,:,0]), torch.tensor(1.0), atol=1e-1), f" time_dependent_logits: {time_dependent_logits[0,:,0]}"
         #
         integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
         # time_dependent_logits = self.task_layer(time_independent_features) [716, 8, 512]
         # print(f"time_dependent_logits: {time_dependent_logits.shape}") [716, 8, 6100]
-        # print(f"batch['log_time']: {batch['log_time'].shape}")  [716, 8, 6100]
-        # print(f"batch['is_event']: {batch['is_event'].shape}")  [716, 8, 6100]
+        # print(f"batch['log_time']: {batch['log_time'].shape}")  [716, 10, 6100]
+        # print(f"batch['is_event']: {batch['is_event'].shape}")  [716, 10, 6100] ->[716,6100]
         assert (
                 batch["log_time"].shape == time_dependent_logits.shape
         ), f"{time_dependent_logits.shape} {batch['log_time'].shape}"
@@ -256,24 +256,35 @@ class MOTORTaskHead(nn.Module):
                 batch["is_event"].shape == time_dependent_logits.shape
         ), f"{time_dependent_logits.shape} {batch['is_event'].shape}"
 
+        # Debug: Check for prediction points where all time bins are False
+        all_bins_false = ~torch.any(batch["is_event"], dim=1)  # [prediction_points, tasks]
+        if torch.any(all_bins_false):
+            all_false_count = torch.sum(all_bins_false)
+            print(f"DEBUG: Found {all_false_count} prediction_pointtask combinations where all time bins are False")
+            
+            # Find specific indices where this happens
+            all_false_indices = torch.where(all_bins_false)
+            prediction_points = all_false_indices[0]
+            task_indices = all_false_indices[1]
+            
+            print(f"DEBUG: First 10 all-false cases:")
+            for i in range(min(10, len(prediction_points))):
+                pred_idx = prediction_points[i].item()
+                task_idx = task_indices[i].item()
+                print(f"  Prediction point {pred_idx}, task {task_idx}: {batch['is_event'][pred_idx, :, task_idx]}")
+
         # Force to always be negative
         # time_dependent_logits = -F.softplus(-time_dependent_logits)
 
 
         # Check for problematic cases where is_event is True in the last time bin
         # This shouldn't happen as the last bin should only contain censored cases
-        last_bin_events = batch["is_event"][:, -1, :]  # [L, task_code]
-        if torch.any(last_bin_events):
-            print(f"WARNING: Found {torch.sum(last_bin_events)} events in the last time bin!")
-            print(f"Last bin event mask shape: {last_bin_events.shape}")
-            print(f"Number of affected prediction points: {torch.sum(torch.any(last_bin_events, dim=1))}")
-            print(f"Affected task codes: {torch.unique(torch.where(last_bin_events)[1])}")
-            # Print some example cases
-            event_locations = torch.where(last_bin_events)
-            for i in range(min(5, len(event_locations[0]))):  # Show first 5 cases
-                pred_point = event_locations[0][i].item()
-                task_code = event_locations[1][i].item() 
-                print(f"  Example {i+1}: prediction_point={pred_point}, task_code={task_code}")
+        # last_bin_events = batch["is_event"][:, -1, :]  # [L, task_code]
+        # if torch.any(last_bin_events):
+        #     print(f"WARNING: Found {torch.sum(last_bin_events)} events in the last time bin!")
+        #     print(f"Last bin event mask shape: {last_bin_events.shape}")
+        #     print(f"Number of affected prediction points: {torch.sum(torch.any(last_bin_events, dim=1))}")
+        #     print(f"Affected task codes: {torch.unique(torch.where(last_bin_events)[1])}")
 
         # how to know censor time of each subject
         # try:
