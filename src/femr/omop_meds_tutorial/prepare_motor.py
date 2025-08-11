@@ -8,6 +8,12 @@ import femr.models.tasks
 import femr.models.processor
 import pandas as pd
 import polars as pl
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    filename='motor.log',
+    filemode='w',
+)
 
 
 def main(args):
@@ -179,9 +185,15 @@ if __name__ == "__main__":
 
 '''
 python prepare_motor.py \
-  --pretraining_data /user/zj2398/cache/motor \
+  --pretraining_data /user/zj2398/cache/motor_mimic \
   --athena_path " " \
   --num_threads 100 \
-  --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader 
+  --meds_reader /user/zj2398/cache/mimic/meds_v0.6_reader 
 #   > out.log 2>&1  
+
+python prepare_motor.py \
+  --pretraining_data /user/zj2398/cache/motor_omop_mimic \
+  --athena_path " " \
+  --num_threads 100 \
+  --meds_reader /user/zj2398/cache/mimic_omop/mimic_omop_meds_reader
 '''

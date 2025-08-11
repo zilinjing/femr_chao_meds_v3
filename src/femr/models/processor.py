@@ -13,7 +13,8 @@ import torch.utils.data
 
 import femr.models.tokenizer
 import femr.pat_utils
-
+import logging
+logger = logging.getLogger(__name__)
 
 def map_preliminary_batch_stats(
     subjects: Iterable[meds_reader.Subject], *, processor: FEMRBatchProcessor, max_length: int
@@ -70,7 +71,9 @@ def map_preliminary_batch_stats(
             start_index = last_index + 1 - length
 
             num_tasks = len([l for l in data["transformer"]["label_indices"] if l >= start_index])
+            # Maximum number of labels to sample (limited by task requirements)
             desired_tasks = min(num_tasks, processor.creator.task.get_sampled_labels(length))
+            # Fraction of labels to sample
             desired_task_fraction = desired_tasks / num_tasks
 
             # print(num_tasks, length, desired_tasks, desired_task_fraction)
@@ -175,8 +178,8 @@ class BatchCreator:
 
         # Purpose: capture all pre‑birth or “person” table codes as a single initial timestep.
         per_subject_token_indices.append(len(per_subject_hierarchical_tokens))
-        # per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
-        per_subject_ages.append((birth - birth) / datetime.timedelta(days=1))
+        per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
+        # per_subject_ages.append((birth - birth) / datetime.timedelta(days=1))
         per_subject_time_data.append([1, 0, 0, 0, 0])
         per_subject_timestamps.append(event.time.replace(tzinfo=datetime.timezone.utc).timestamp())
                 
@@ -192,7 +195,9 @@ class BatchCreator:
                 current_date = event.time.date()
                 codes_seen_today = set()
 
+            # Get the age of the event, delta time to last time
             age = max(datetime.timedelta(seconds=0), event.time - birth)
+            # print(f"age: {age}")
             if last_time is not None:
                 delta = event.time - last_time
             else:
@@ -212,7 +217,7 @@ class BatchCreator:
 
             codes_seen_today |= set(features)
 
-            # don't understand
+            #  Label Generation  don't understand
             if (self.task is not None) and (last_time is not None):
                 # Now we have to consider whether or not to have labels for this time step
                 # The add_event function returns how many labels to assign for this time
@@ -221,7 +226,10 @@ class BatchCreator:
                     # num_added = 0/1, depneding on if there is still future tte event to predict
                     #Append that many copies of the current age‐index into per_subject_label_indices
                     num_added = self.task.add_event(last_time, event.time, features, actually_add=actually_add)
+                    # print(f"num_added: {num_added}")
+                    # print(f"event is {event}, time is {event.time}, num_added: {num_added}")
                     for _ in range(num_added):
+                        # print(f"len(per_subject_ages) - 1 is : {len(per_subject_ages) - 1}, per_subject_ages: {per_subject_ages}")
                         per_subject_label_indices.append(len(per_subject_ages) - 1)
 
             if False:
@@ -231,25 +239,31 @@ class BatchCreator:
                 assert weights is not None
                 per_subject_hierarchical_tokens.extend(features)
                 per_subject_hierarchical_weights.extend(weights)
-
                 per_subject_token_indices.append(len(per_subject_hierarchical_tokens)) 
-
+            # Time Data updates, add age in days
             per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
+            # print(f"per_subject_label_indices: {per_subject_label_indices}")
+            # logger.info(f"per_subject_label_indices: {per_subject_label_indices}")
+            # print(f"per_subject_ages: {per_subject_ages}")
+            # logger.info(f"per_subject_ages: {per_subject_ages}")
 
-            # update time_data
+            # update time_data with normalized time features
             if last_time is None:
                 per_subject_time_data.append([-1] + self.tokenizer.get_time_data(age, delta)[:2] + [0, 0])
+                print(f"last_time is None, per_subject_time_data added: {per_subject_time_data[-1]}")
             else:
                 per_subject_time_data.append([0] + self.tokenizer.get_time_data(age, delta))
+                print(f"last_time is not None, per_subject_time_data added: {per_subject_time_data[-1]}")
 
             per_subject_timestamps.append(event.time.replace(tzinfo=datetime.timezone.utc).timestamp())
 
             last_time = event.time
-
+        # exit()
         # add labels for the last time step
         if self.task is not None and last_time is not None and last_time.date() > birth.date():
             num_added = self.task.add_event(last_time, None, None)
             for _ in range(num_added):
+                print(f"len(per_subject_ages) - 1 is : {len(per_subject_ages) - 1}, per_subject_ages: {per_subject_ages}")
                 per_subject_label_indices.append(len(per_subject_ages) - 1)
 
         # Now we want to actually add the subject data to the batch.
@@ -329,6 +343,7 @@ class BatchCreator:
                 labels_to_add.append(i)
                 self.label_indices.append(start_index + corrected_label)
 
+        # not executed in map_preliminary_batch_stats, but executed in _batch_generator
         if actually_add and self.task is not None:
             self.task.add_subject_labels(labels_to_add)
 
@@ -371,11 +386,44 @@ class BatchCreator:
             "offsets": np.array(self.offsets, dtype=np.int32),
             "transformer": transformer,
         }
+        # print(f"final: {final}")
+        # logger.info(f"final: {final}")
+        # print(len(self.subject_lengths))
+        # print(len(self.label_indices))
+        # print(len(self.subject_ids))
+        # print(len(self.offsets))
+        # print(f"transformer: {transformer}")
+        # logger.info(f"transformer: {transformer}")
 
         # Add the task data
         if self.task is not None and transformer["label_indices"].shape[0] > 0:
+            # for key in final:
+            #     if key == "transformer":
+            #         for key2 in final[key]:
+            #             print(f"transformer key: {key2}")
+            #             if isinstance(final[key][key2], np.ndarray):
+            #                 print(f"value shape {final[key][key2].shape}, value {final[key][key2]}")
+            #             else:
+            #                 print(f"value {final[key][key2]}")
+            #     else:
+            #         print(f"key: {key}")
+            #         if isinstance(final[key], np.ndarray):
+            #             print(f"shape {final[key].shape},  value {final[key]}")
+            #         else:
+            #             print(f"value {final[key]}")
+            # exit()
             final["task"] = self.task.get_batch_data()
             final["needs_exact"] = self.task.needs_exact()
+            # print(f"final: {final['task']}")
+            # logger.info(f"final: {final['task']}")
+            # print(f"final: {final['needs_exact']}")
+            # logger.info(f"final: {final['needs_exact']}")
+            # print(f"final: {final}")
+            # logger.info(f"final: {final}")
+            # for key in final["task"]:
+            #     print(f"key: {key}")
+            #     print(f"value shape: {final['task'][key].shape}, value: {final['task'][key]}")
+            # exit()
         return final
 
     def cleanup_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
@@ -456,6 +504,7 @@ class FEMRBatchProcessor:
         self.creator.start_batch()
         self.creator.add_subject(subject, offset=offset, max_length=max_length, actually_add=actually_add)
         batch_data = self.creator.get_batch_data()
+        # by default, tensor_type is None
         if tensor_type is not None:
             formatter = datasets.formatting.get_formatter(tensor_type, **formatter_kwargs)
             batch_data = formatter.recursive_tensorize(batch_data)
@@ -471,7 +520,7 @@ class FEMRBatchProcessor:
         return {"batch": _add_dimension(self.creator.cleanup_batch(batches[0]))}
 
     def convert_dataset(
-        self, db: meds_reader.SubjectDatabase, tokens_per_batch: int, min_subjects_per_batch: int = 2, num_proc: int = 1
+        self, db: meds_reader.SubjectDatabase, tokens_per_batch: int, min_subjects_per_batch: int = 1, num_proc: int = 1
     ):
         """Convert an entire dataset to batches.
 
@@ -486,6 +535,7 @@ class FEMRBatchProcessor:
         """
 
         max_length = tokens_per_batch // min_subjects_per_batch
+        print(f"max_length: {max_length}")
 
         length_chunks = tuple(
             db.map(
@@ -493,19 +543,28 @@ class FEMRBatchProcessor:
             )
         )
 
+        # is it np.array[(subject_id, start_index, length, fraction)] length=num_subjects?
         lengths = np.concatenate(length_chunks)
+
+        # Sort by subject_id (column 0) to group same subjects together
         order = np.argsort(lengths[:, 0])
         lengths = lengths[order, :]
 
+        # Shuffle the subjects to avoid bias in the order of the batches
         rng = np.random.default_rng(342342)
         rng.shuffle(lengths)
 
         assert len(lengths) != 0
 
+        # Column 2 is sequence length
+        # Column 3 is fraction of labels to sample
+        # Column 1 is start_index
+        # Column 0 is subject_id
         current_batch_length = 0
 
         batch_offsets = [0]
 
+        # Column 2 is sequence length
         for i, length in enumerate(lengths[:, 2]):
             if current_batch_length + length > tokens_per_batch:
                 batch_offsets.append(i)
@@ -515,7 +574,11 @@ class FEMRBatchProcessor:
 
         batch_offsets.append(len(lengths))
 
+        print(f"batch_offsets: {batch_offsets}")
+
+        # batches is a list of tuples (start_index, end_index) indicating the start and end subject indices of each batch
         batches = list(zip(batch_offsets, batch_offsets[1:]))
+        print(f"batches: {batches}")
         print("Got batches", len(batches))
 
         split_batches = np.array_split(batches, num_proc)
@@ -541,6 +604,7 @@ class FEMRBatchProcessor:
                 )
             )
 
+        print(f"final_batch_data: {final_batch_data}")
         batch_func = functools.partial(
             _batch_generator,
             creator=self.creator,

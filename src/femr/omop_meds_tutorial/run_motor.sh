@@ -1,11 +1,15 @@
 #!/bin/sh
+LOGFILE="$(dirname "$0")/run_motor_output2.log"
+exec > >(tee -a "$LOGFILE") 2>&1
 
 # Default values
 SCRIPT_NAME=$(basename "$0")
 NUM_PROC=10
-TOKENS_PER_BATCH=231072
+TOKENS_PER_BATCH=8192
 # Use empty value to indicate no observation window specified
 OBSERVATION_WINDOW=""
+
+
 
 # Function to display help
 show_help() {
@@ -18,7 +22,7 @@ show_help() {
     echo
     echo "Options:"
     echo "  -h, --help               Display this help message and exit"
-    echo "  --pretraining_data       Override PRETRAINING_DATA environment variable"
+    echo "  --pretraining_data       Override PRETRAINING_DATA environment variable, load ontology"
     echo "  --meds_reader            Override OMOP_MEDS_READER environment variable"
     echo "  --num_proc               Number of processors to use (default: 10)"
     echo "  --tokens_per_batch       Tokens per batch (default: 231072)"
@@ -38,6 +42,7 @@ show_help() {
 PRETRAINING_DATA_ARG=""
 OMOP_MEDS_READER_ARG=""
 COHORT_BASE_DIR=""
+DEVICE="cuda"
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -53,8 +58,16 @@ while [ $# -gt 0 ]; do
             OMOP_MEDS_READER_ARG="$2"
             shift 2
             ;;
+        --model_path)
+            MODEL_PATH="$2"
+            shift 2
+            ;;
         --num_proc)
             NUM_PROC="$2"
+            shift 2
+            ;;
+        --device)
+            DEVICE="$2"
             shift 2
             ;;
         --tokens_per_batch)
@@ -63,6 +76,10 @@ while [ $# -gt 0 ]; do
             ;;
         --observation_window)
             OBSERVATION_WINDOW="$2"
+            shift 2
+            ;;
+        --min_subjects_per_batch)
+            MIN_SUBJECTS_PER_BATCH="$2"
             shift 2
             ;;
         -*)
@@ -146,7 +163,7 @@ if [ "$TASK_COUNT" -eq 0 ]; then
 fi
 
 echo "Found $TASK_COUNT prediction tasks."
-echo
+# echo
 
 # Process tasks
 CURRENT=0
@@ -161,6 +178,7 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
     CURRENT=$((CURRENT + 1))
 
     echo "[$CURRENT/$TASK_COUNT] Processing task: $TASK_NAME"
+    echo "cohort_base_dir: $COHORT_BASE_DIR"
     echo "Task directory: $TASK_DIR"
 
     # Run the first command: generate MOTOR features
@@ -169,9 +187,12 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
     # Build the command with conditional observation_window parameter
     GENERATE_CMD="python -u -m femr.omop_meds_tutorial.generate_motor_features \
       --pretraining_data \"$PRETRAINING_DATA\" \
+      --model_path \"$MODEL_PATH\" \
       --meds_reader \"$OMOP_MEDS_READER\" \
       --num_proc \"$NUM_PROC\" \
       --tokens_per_batch \"$TOKENS_PER_BATCH\" \
+      --device \"$DEVICE\" \
+      --min_subjects_per_batch \"$MIN_SUBJECTS_PER_BATCH\" \
       --cohort_dir \"$TASK_DIR\""
 
     # Add observation_window parameter if specified
@@ -247,3 +268,17 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
 done
 
 echo "All tasks processed."
+
+# export CUDA_VISIBLE_DEVICES=2
+# bash run_motor.sh \
+#   --pretraining_data   /user/zj2398/cache/motor_mimic \
+#   --meds_reader        /user/zj2398/cache/mimic/meds_v0.6_reader \
+#   --num_proc           100 \
+#   --model_path         /user/zj2398/cache/motor_mimic/output/motor_8192 \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --min_subjects_per_batch 8 \
+#   /user/zj2398/cache/mimic/mimic-3.1-meds/patient_outcome_tasks/task/
+
+
+

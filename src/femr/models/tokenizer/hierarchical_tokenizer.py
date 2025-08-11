@@ -137,6 +137,7 @@ def map_statistics(
 
         final_codes: Set[str] = set()
         for code in code_set:
+            
             final_codes |= ontology.get_all_parents(code)
 
         for code in final_codes:
@@ -302,8 +303,10 @@ class HierarchicalTokenizer(transformers.utils.PushToHubMixin):
 
         numeric_entries = collections.defaultdict(list)
         for i, dict_entry in enumerate(vocab):
+            # add all codes: index to code_lookup
             if dict_entry["type"] == "code":
                 self.code_lookup[dict_entry["code_string"]] = i
+            # add all numeric: index to numeric_indices
             elif dict_entry["type"] == "numeric" and dict_entry["property"] != 'visit_id':
                 numeric_entries[dict_entry["property"]].append((dict_entry["val_start"], i))
             elif dict_entry["type"] == "text":
@@ -416,9 +419,11 @@ class HierarchicalTokenizer(transformers.utils.PushToHubMixin):
         for k, v in event:
             # print(f"k: {k}, v: {v}")
             if k in self.numeric_indices and ((possib_float := try_float(v)) is not None):
+                # print(f"k: {k}, v: {v}, possib_float: {possib_float}")
                 codes.append(self.numeric_indices[k][bisect.bisect(self.numeric_values[k], possib_float)])
                 weights.append(1)
             elif k in self.string_lookup and ((possib_value := self.string_lookup[k].get(v)) is not None):
+                # print(f"k: {k}, v: {v}, possib_value: {possib_value}")
                 codes.append(possib_value)
                 weights.append(1)
         # print(f"after get_feature_codes, codes: {codes}, weights: {weights}")

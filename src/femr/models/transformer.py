@@ -116,6 +116,7 @@ class FEMREncoderLayer(nn.Module):
 
         qkv = qkv.reshape(x.shape[0], 3, self.config.n_heads, head_size)
 
+        # it doesn't have absolute time as input
         q = apply_rotary_pos_emb(qkv[:, 0, :, :], pos_embed)
         k = apply_rotary_pos_emb(qkv[:, 1, :, :], pos_embed)
         v = qkv[:, 2, :, :]
@@ -225,21 +226,29 @@ class MOTORTaskHead(nn.Module):
         self.final_layer = nn.Linear(hidden_size, self.num_time_bins * final_layer_size)
 
         self.task_layer = nn.Linear(self.final_layer_size, self.num_tasks)
+        self.softmax = nn.Softmax(dim=[1])
         start_bias = torch.log2(torch.tensor([a[1] for a in pretraining_task_info], dtype=torch.float32))
         self.task_layer.bias.data = start_bias
 
-        self.task_time_bias = nn.Parameter(torch.zeros(1, self.num_time_bins, self.num_tasks))
-
+      
         self.norm = femr.models.rmsnorm.RMSNorm(self.final_layer_size)
 
     def forward(self, features: torch.Tensor, batch: Mapping[str, torch.Tensor], return_logits=False):
+        # (num_predictions, hidden_size) -> (num_predictions, num_time_bins, final_layer_size)
         time_independent_features = self.final_layer(features).reshape(
             features.shape[0], self.num_time_bins, self.final_layer_size
         )
 
-        time_dependent_logits = self.task_layer(self.norm(time_independent_features)) + self.task_time_bias
-        # time_dependent_logits = self.task_layer(time_independent_features)
-
+        # take the softmaxof the logits over the time bins, assume indenpendence between different event types conditional previous embeddings
+        # time_dependent_logits: prediction_points*time_bins *event_types  [716, 8, 6100]
+        time_dependent_logits = self.softmax(self.task_layer(self.norm(time_independent_features)))
+            
+        #
+        integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
+        # time_dependent_logits = self.task_layer(time_independent_features) [716, 8, 512]
+        # print(f"time_dependent_logits: {time_dependent_logits.shape}") [716, 8, 6100]
+        # print(f"batch['log_time']: {batch['log_time'].shape}")  [716, 8, 6100]
+        # print(f"batch['is_event']: {batch['is_event'].shape}")  [716, 8, 6100]
         assert (
                 batch["log_time"].shape == time_dependent_logits.shape
         ), f"{time_dependent_logits.shape} {batch['log_time'].shape}"
@@ -250,8 +259,30 @@ class MOTORTaskHead(nn.Module):
         # Force to always be negative
         # time_dependent_logits = -F.softplus(-time_dependent_logits)
 
-        survival_loss = torch.exp2(time_dependent_logits + batch["log_time"]).mean()
-        event_loss = -math.log(2) * torch.where(batch["is_event"], time_dependent_logits, 0).mean()
+
+        # Check for problematic cases where is_event is True in the last time bin
+        # This shouldn't happen as the last bin should only contain censored cases
+        last_bin_events = batch["is_event"][:, -1, :]  # [L, task_code]
+        if torch.any(last_bin_events):
+            print(f"WARNING: Found {torch.sum(last_bin_events)} events in the last time bin!")
+            print(f"Last bin event mask shape: {last_bin_events.shape}")
+            print(f"Number of affected prediction points: {torch.sum(torch.any(last_bin_events, dim=1))}")
+            print(f"Affected task codes: {torch.unique(torch.where(last_bin_events)[1])}")
+            # Print some example cases
+            event_locations = torch.where(last_bin_events)
+            for i in range(min(5, len(event_locations[0]))):  # Show first 5 cases
+                pred_point = event_locations[0][i].item()
+                task_code = event_locations[1][i].item() 
+                print(f"  Example {i+1}: prediction_point={pred_point}, task_code={task_code}")
+
+        # how to know censor time of each subject
+        # try:
+        event_loss =  torch.where(batch["is_event"],  torch.log(time_dependent_logits), torch.log(integrated_logits)).mean()
+        # except:
+        #     print(integrated_logits[:, -1, :])
+
+        # survival_loss = torch.exp2(time_dependent_logits + batch["log_time"]).mean()
+        # event_loss = -math.log(2) * torch.where(batch["is_event"], time_dependent_logits, 0).mean()
 
         # with torch.autocast(device_type="cuda", enabled=False):
         #     actual = torch.exp2(time_dependent_logits.type(torch.float32) + batch["log_time"].type(torch.float32))
@@ -327,7 +358,8 @@ class MOTORTaskHead(nn.Module):
         # print(batch["log_time"])
         # print(self.task_layer.bias.unsqueeze(0).unsqueeze(0) + batch["log_time"])
 
-        loss = survival_loss + event_loss
+        # loss = survival_loss + event_loss
+        loss = event_loss
 
         if not return_logits:
             time_dependent_logits = None
@@ -382,15 +414,19 @@ class FEMRModel(transformers.PreTrainedModel):
         assert return_loss
 
         batch = remove_first_dimension(batch)
-
-        s = torch.zeros_like(batch['subject_ids'])
+        input_device = batch['subject_ids'].device
+        s = torch.zeros_like(batch['subject_ids'], device=input_device)
+        # s = torch.zeros_like(batch['subject_ids'])
         s[1:] = batch['subject_ids'][1:] != batch['subject_ids'][:-1]
         s = torch.cumsum(s, dim=0).type(torch.uint8)
 
+        # (time_steps, hidden_size)
         features = self.transformer(batch["transformer"], s)
         if "task" in batch and self.config.task_config is not None:
             features = features.reshape(-1, features.shape[-1])
             features = features[batch["transformer"]["label_indices"], :]
+            # print(f"features before forward: {features.shape}")
+            
             loss, result = self.task_model(features, batch["task"], return_logits=return_logits)
             if return_reprs:
                 result["representations"] = features
@@ -440,7 +476,8 @@ def compute_features(
         device: Optional[torch.device] = None,
         ontology: Optional[femr.ontology.Ontology] = None,
         observation_window: Optional[int] = None,
-        total_flops: TotalFlops = None
+        min_subjects_per_batch: int = 1,
+        total_flops: TotalFlops = None,
 ) -> Dict[str, np.ndarray]:
     """ "Compute features for a set of labels given a dataset and a model.
 
@@ -462,6 +499,7 @@ def compute_features(
     """
     task = femr.models.tasks.LabeledSubjectTask(labels, observation_window)
 
+    print(f"Loading model from {model_path}")
     model = femr.models.transformer.FEMRModel.from_pretrained(model_path, task_config=task.get_task_config())
     tokenizer = femr.models.tokenizer.HierarchicalTokenizer.from_pretrained(model_path, ontology=ontology)
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task=task)
@@ -473,8 +511,9 @@ def compute_features(
 
     cpu_device = torch.device("cpu")
 
+    print(f"The maximum context length is {tokens_per_batch/min_subjects_per_batch},  {min_subjects_per_batch} subjects and {tokens_per_batch} tokens per batch")
     batches = processor.convert_dataset(
-        filtered_data, tokens_per_batch=tokens_per_batch, min_subjects_per_batch=1, num_proc=num_proc
+        filtered_data, tokens_per_batch=tokens_per_batch, min_subjects_per_batch=min_subjects_per_batch, num_proc=num_proc
     )
 
     batches.set_format("pt")

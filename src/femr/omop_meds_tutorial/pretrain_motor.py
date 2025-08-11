@@ -144,6 +144,7 @@ def main():
         adam_beta2=0.95,
         report_to="none",
         # report_to=["wandb"],
+        run_name="motor_mimic",
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
         ddp_find_unused_parameters=False,
@@ -159,7 +160,7 @@ def main():
 
         # prediction_loss_only=True,
         # dataloader_num_workers=1,
-        dataloader_num_workers=32,
+        dataloader_num_workers=64,
 
         save_total_limit=10,
         load_best_model_at_end=True,
@@ -195,31 +196,32 @@ if __name__ == "__main__":
 
 '''
 40 hours
-CUDA_VISIBLE_DEVICES=5 python pretrain_motor.py \
-  --pretraining_data /user/zj2398/cache/motor \
+CUDA_VISIBLE_DEVICES=1 2,3,4,5 
+
+python pretrain_motor.py \
+  --pretraining_data /user/zj2398/cache/motor_mimic \
   --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
   --per_device_train_batch_size 1 \
-  --output_dir /user/zj2398/cache/motor/output
+  --output_dir /user/zj2398/cache/motor_mimic/output
 
   17.5
 
-CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 accelerate launch \
-  --num_processes 6 \
+CUDA_VISIBLE_DEVICES=2,3,4,6 accelerate launch \
+  --num_processes 4 \
   --mixed_precision bf16 \
-  --gpu_ids "2,3,4,5,6,7" \
+  --gpu_ids "2,3,4,6" \
   pretrain_motor.py \
-  --pretraining_data /user/zj2398/cache/motor \
+  --pretraining_data /user/zj2398/cache/motor_mimic \
   --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
   --per_device_train_batch_size 1 \
-  --output_dir /user/zj2398/cache/motor/output_ddp
+  --output_dir /user/zj2398/cache/motor_mimic/output
 
 accelerate launch \
-  --num_processes 1 \
+  --num_processes 2 \
   --mixed_precision bf16 \
-  --gpu_ids "5" \
   pretrain_motor.py \
-  --pretraining_data /user/zj2398/cache/motor \
+  --pretraining_data /user/zj2398/cache/motor_mimic \
   --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
   --per_device_train_batch_size 1 \
-  --output_dir /user/zj2398/cache/motor/output_ddp
+  --output_dir /user/zj2398/cache/motor_mimic/output
 '''

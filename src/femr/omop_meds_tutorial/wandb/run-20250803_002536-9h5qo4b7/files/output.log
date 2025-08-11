@@ -1,0 +1,35 @@
+  0%|                                                                                                           | 0/503100 [00:00<?, ?it/s]Could not estimate the number of tokens of the input, floating-point operations will not be computed
+  0%|▏                                                                                            | 1315/503100 [07:20<43:16:05,  3.22it/s]/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/autograd/graph.py:825: UserWarning: Grad strides do not match bucket view strides. This may indicate grad was not created according to the gradient layout contract, or that the param's strides changed since DDP was constructed.  This is not an error, but may impair performance.
+grad.sizes() = [1, 8, 6100], strides() = [6100, 6100, 1]
+bucket_view.sizes() = [1, 8, 6100], strides() = [48800, 6100, 1] (Triggered internally at ../torch/csrc/distributed/c10d/reducer.cpp:327.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+ 20%|█████████████████▊                                                                       | 100620/503100 [7:41:29<30:45:59,  3.63it/s]
+{'loss': 0.0617, 'grad_norm': 0.006395380944013596, 'learning_rate': 9.809769200159173e-06, 'epoch': 1.0}
+                                                                                                                                           
+{'eval_loss': 0.059538234025239944, 'eval_runtime': 93.5774, 'eval_samples_per_second': 22.174, 'eval_steps_per_second': 5.546, 'epoch': 1.0}
+{'loss': 0.0597, 'grad_norm': 0.0034564814995974302, 'learning_rate': 9.60957023477915e-06, 'epoch': 2.0}
+{'eval_loss': 0.05887506902217865, 'eval_runtime': 96.4796, 'eval_samples_per_second': 21.507, 'eval_steps_per_second': 5.379, 'epoch': 2.0}
+{'loss': 0.0592, 'grad_norm': 0.003921608440577984, 'learning_rate': 9.409371269399126e-06, 'epoch': 3.0}
+{'eval_loss': 0.0585150383412838, 'eval_runtime': 93.7882, 'eval_samples_per_second': 22.124, 'eval_steps_per_second': 5.534, 'epoch': 3.0}
+{'loss': 0.0589, 'grad_norm': 0.006798997521400452, 'learning_rate': 9.209172304019102e-06, 'epoch': 4.0}
+{'eval_loss': 0.05829356983304024, 'eval_runtime': 90.4718, 'eval_samples_per_second': 22.935, 'eval_steps_per_second': 5.737, 'epoch': 4.0}
+{'loss': 0.0587, 'grad_norm': 0.010730224661529064, 'learning_rate': 9.008973338639077e-06, 'epoch': 5.0}
+{'eval_loss': 0.058060698211193085, 'eval_runtime': 93.6035, 'eval_samples_per_second': 22.168, 'eval_steps_per_second': 5.545, 'epoch': 5.0}
+{'loss': 0.0584, 'grad_norm': 0.00786138977855444, 'learning_rate': 8.808774373259054e-06, 'epoch': 6.0}
+{'eval_loss': 0.0579134076833725, 'eval_runtime': 94.4383, 'eval_samples_per_second': 21.972, 'eval_steps_per_second': 5.496, 'epoch': 6.0}
+{'loss': 0.0583, 'grad_norm': 0.007128466852009296, 'learning_rate': 8.60857540787903e-06, 'epoch': 7.0}
+{'eval_loss': 0.05781419947743416, 'eval_runtime': 92.8175, 'eval_samples_per_second': 22.356, 'eval_steps_per_second': 5.592, 'epoch': 7.0}
+{'loss': 0.0581, 'grad_norm': 0.004199096001684666, 'learning_rate': 8.408376442499005e-06, 'epoch': 8.0}
+{'eval_loss': 0.05772048234939575, 'eval_runtime': 88.9676, 'eval_samples_per_second': 23.323, 'eval_steps_per_second': 5.834, 'epoch': 8.0}
+{'loss': 0.058, 'grad_norm': 0.010837377049028873, 'learning_rate': 8.208177477118981e-06, 'epoch': 9.0}
+{'eval_loss': 0.05764970928430557, 'eval_runtime': 96.8564, 'eval_samples_per_second': 21.423, 'eval_steps_per_second': 5.358, 'epoch': 9.0}
+{'loss': 0.0578, 'grad_norm': 0.006755099166184664, 'learning_rate': 8.007978511738958e-06, 'epoch': 10.0}
+{'eval_loss': 0.05763822793960571, 'eval_runtime': 93.3199, 'eval_samples_per_second': 22.235, 'eval_steps_per_second': 5.562, 'epoch': 10.0}
+{'train_runtime': 27689.8656, 'train_samples_per_second': 72.673, 'train_steps_per_second': 18.169, 'train_loss': 0.05887982787964619, 'epoch': 10.0}
+***** train metrics *****
+  epoch                    =       10.0
+  total_flos               =        0GF
+  train_loss               =     0.0589
+  train_runtime            = 7:41:29.86
+  train_samples_per_second =     72.673
+  train_steps_per_second   =     18.169

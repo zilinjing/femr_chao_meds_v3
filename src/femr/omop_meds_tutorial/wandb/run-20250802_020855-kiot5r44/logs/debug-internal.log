@@ -1,0 +1,6 @@
+{"time":"2025-08-02T02:08:57.279783702-04:00","level":"INFO","msg":"stream: starting","core version":"0.21.0"}
+{"time":"2025-08-02T02:08:57.830251536-04:00","level":"INFO","msg":"stream: created new stream","id":"kiot5r44"}
+{"time":"2025-08-02T02:08:57.830321986-04:00","level":"INFO","msg":"stream: started","id":"kiot5r44"}
+{"time":"2025-08-02T02:08:57.830325397-04:00","level":"INFO","msg":"writer: Do: started","stream_id":"kiot5r44"}
+{"time":"2025-08-02T02:08:57.830336547-04:00","level":"INFO","msg":"sender: started","stream_id":"kiot5r44"}
+{"time":"2025-08-02T02:08:57.830371397-04:00","level":"INFO","msg":"handler: started","stream_id":"kiot5r44"}

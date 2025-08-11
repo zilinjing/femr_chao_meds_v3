@@ -25,10 +25,24 @@ def create_arg_parser():
         help="Number of processes to use",
     )
     args.add_argument(
+        "--model_path",
+        dest="model_path",
+        default=None,
+        help="The path to the model to use",
+    )
+    
+    args.add_argument(
+        "--device",
+        dest="device",
+        default="cuda",
+        help="The device to use",
+    )
+
+    args.add_argument(
         "--tokens_per_batch",
         dest="tokens_per_batch",
         type=int,
-        default=32 * 1024,
+        default=8192,
         help="The number of tokens per batch to use",
     )
     args.add_argument(
@@ -43,7 +57,15 @@ def create_arg_parser():
         default=None,
         help="The observation window for extracting features",
     )
+    args.add_argument(
+        "--min_subjects_per_batch",
+        dest="min_subjects_per_batch",
+        type=int,
+        default=1,
+        help="The minimum number of subjects per batch",
+    )
     return args
+
 
 
 def read_recursive_parquet(root_dir):
@@ -76,6 +98,7 @@ def main():
         if args.cohort_dir is not None:
             if os.path.isdir(args.cohort_dir):
                 label_name = os.path.basename(os.path.normpath(args.cohort_dir))
+                print(f"label_name of cohort_dir: {label_name}")
                 cohort = read_recursive_parquet(args.cohort_dir)
             else:
                 label_name = os.path.basename(os.path.splitext(args.cohort_dir)[0])
@@ -91,6 +114,7 @@ def main():
             if len(cohort) > 0 and isinstance(cohort.prediction_time.iloc[0], datetime.date):
                 cohort["prediction_time"] = pd.to_datetime(cohort["prediction_time"])
 
+            os.makedirs(pretraining_data / "labels", exist_ok=True)
             cohort.to_parquet(
                 pretraining_data / "labels" / (label_name + '.parquet')
             )
@@ -105,9 +129,14 @@ def main():
                     f"The features for {label_name} already exist at {feature_output_path}, it will be skipped!"
                 )
                 continue
+
+            # no split here
+            file_path = pretraining_data / "labels" / (label_name + '.parquet')
+            print("Loading labels from ", file_path)
             labels = pd.read_parquet(
                 pretraining_data / "labels" / (label_name + '.parquet')
             )
+            print(f"labels: {labels.head()}")
             typed_labels = [
                 meds.Label(
                     subject_id=label["subject_id"],
@@ -116,18 +145,20 @@ def main():
                 )
                 for label in labels.to_dict(orient="records")
             ]
+            print(f"typed_labels length: {len(typed_labels)}")
             total_flops = femr.models.transformer.TotalFlops()
             start_time: datetime.datetime = datetime.datetime.now()
             features = femr.models.transformer.compute_features(
                 db=database,
-                model_path=str(pretraining_data / "motor_model"),
+                model_path=args.model_path,
                 labels=typed_labels,
                 ontology=ontology,
-                device=torch.device('cuda'),
+                device=torch.device(args.device),
                 tokens_per_batch=args.tokens_per_batch,
                 num_proc=args.num_proc,
                 observation_window=args.observation_window,
-                total_flops=total_flops
+                min_subjects_per_batch=args.min_subjects_per_batch,
+                # total_flops=None
             )
             with open(feature_output_path, 'wb') as f:
                 pickle.dump(features, f)
@@ -142,3 +173,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+'''
+python generate_motor_features.py \
+  --pretraining_data /user/zj2398/cache/motor_mimic \
+  --meds_reader /user/zj2398/cache/mimic/meds_v0.6_reader \
+  --model_path /user/zj2398/cache/motor_mimic/output/model_8192 \
+  --device cuda:6 \
+  --tokens_per_batch 8192*8 \
+  --cohort_dir /user/zj2398/cache/mimic/mimic-3.1-meds/patient_outcome_tasks/task \
+  --min_subjects_per_batch 8 \
+  --num_proc 100
+'''

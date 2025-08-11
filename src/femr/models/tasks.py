@@ -233,6 +233,10 @@ class SurvivalCalculator:
             self.survival_events.pop()
 
         delta = self.final_date - time
+        # k is the code, v is the list of times
+        # v[-1] is the last time in the list
+        # time is the current time
+        # so v[-1] - time is the time until the next event of the code
         return (delta, {k: v[-1] - time for k, v in self.future_times.items()})
 
 
