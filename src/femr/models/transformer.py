@@ -241,7 +241,32 @@ class MOTORTaskHead(nn.Module):
 
         # take the softmaxof the logits over the time bins, assume indenpendence between different event types conditional previous embeddings
         # time_dependent_logits: prediction_points*time_bins *event_types  [716, 8, 6100]
-        time_dependent_logits = self.softmax(nn.Sigmoid(self.task_layer(self.norm(time_independent_features))))
+        
+        # OPTION 1: Original approach without sigmoid (recommended)
+        # This is numerically more stable than sigmoid + softmax
+        task_logits = self.task_layer(self.norm(time_independent_features))
+        
+        # Clamp logits to prevent overflow in softmax
+        # task_logits = torch.clamp(task_logits, min=-50, max=50)
+        
+        time_dependent_logits = self.softmax(task_logits)
+        
+        # OPTION 2: If you want sigmoid, use it INSTEAD of softmax, not both
+        # Uncomment this block and comment out the above if you prefer sigmoid approach
+        # task_logits = self.task_layer(self.norm(time_independent_features))
+        # task_logits = torch.clamp(task_logits, min=-50, max=50)  # prevent overflow
+        # time_dependent_logits = torch.sigmoid(task_logits)
+        # # Normalize along time dimension to ensure probabilities sum to 1 over time
+        # time_dependent_logits = time_dependent_logits / torch.sum(time_dependent_logits, dim=1, keepdim=True)
+        
+        # Debug: Check for NaN/inf values
+        if torch.any(torch.isnan(time_dependent_logits)) or torch.any(torch.isinf(time_dependent_logits)):
+            print(f"ERROR: NaN/inf detected in time_dependent_logits")
+            print(f"  NaN count: {torch.sum(torch.isnan(time_dependent_logits))}")
+            print(f"  Inf count: {torch.sum(torch.isinf(time_dependent_logits))}")
+            print(f"  Raw logits stats - min: {torch.min(task_logits)}, max: {torch.max(task_logits)}")
+            raise ValueError("NaN/inf detected in time_dependent_logits")
+            
         assert torch.allclose(sum(time_dependent_logits[0,:,0]), torch.tensor(1.0), atol=1e-1), f" time_dependent_logits: {time_dependent_logits[0,:,0]}"
         #
         integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
@@ -256,22 +281,69 @@ class MOTORTaskHead(nn.Module):
                 batch["is_event"].shape == time_dependent_logits.shape
         ), f"{time_dependent_logits.shape} {batch['is_event'].shape}"
 
-        # Debug: Check for prediction points where all time bins are False
-        all_bins_false = ~torch.any(batch["is_event"], dim=1)  # [prediction_points, tasks]
-        if torch.any(all_bins_false):
-            all_false_count = torch.sum(all_bins_false)
-            print(f"DEBUG: Found {all_false_count} prediction_pointtask combinations where all time bins are False")
+
+        # how to know censor time of each subject
+        # Add numerical stability - clamp values to prevent log(0)
+        # eps = 1e-8
+        time_dependent_logits_stable = torch.clamp(time_dependent_logits, min=eps, max=1.0-eps)
+        integrated_logits_stable = torch.clamp(integrated_logits, min=eps, max=1.0-eps)
+
+        ''' error
+        WARNING: Found zero/negative values before log operation
+        time_dependent_logits min: 0.003464208450168371
+        integrated_logits min: -3.5762786865234375e-07
+        time_dependent_logits zeros: 0
+        integrated_logits zeros: 3690954
+        '''
+        
+        # how to solve the all false case -> we need to get the time of the last event, and see where it lands, if it lands in the last time bin, then we need make it true. we have to revise the 
+        # Debug: Check for problematic values before taking log
+        if torch.any(time_dependent_logits <= 0) or torch.any(integrated_logits <= 0):
+            print(f"WARNING: Found zero/negative values before log operation")
+            print(f"  time_dependent_logits min: {torch.min(time_dependent_logits)}")
+            print(f"  integrated_logits min: {torch.min(integrated_logits)}")
+            print(f"  time_dependent_logits zeros: {torch.sum(time_dependent_logits <= 0)}")
+            print(f"  integrated_logits zeros: {torch.sum(integrated_logits <= 0)}")
+
+        # check if multiple true happens in different time bins
+        labels_sum = torch.sum(batch["is_event"], dim=1)  # Sum along time bins dimension
+        multiple_trues_mask = labels_sum > 1  # Check where sum > 1 (multiple True values)
+        
+        if torch.any(multiple_trues_mask):
+            multiple_count = torch.sum(multiple_trues_mask)
+            print(f"WARNING: Found {multiple_count} prediction_point-task combinations with multiple True values in time bins")
             
             # Find specific indices where this happens
-            all_false_indices = torch.where(all_bins_false)
-            prediction_points = all_false_indices[0]
-            task_indices = all_false_indices[1]
+            multiple_indices = torch.where(multiple_trues_mask)
+            prediction_points = multiple_indices[0]
+            task_indices = multiple_indices[1]
             
-            print(f"DEBUG: First 10 all-false cases:")
-            for i in range(min(10, len(prediction_points))):
+            print(f"DEBUG: First 5 multiple-true cases:")
+            for i in range(min(5, len(prediction_points))):
                 pred_idx = prediction_points[i].item()
                 task_idx = task_indices[i].item()
-                print(f"  Prediction point {pred_idx}, task {task_idx}: {batch['is_event'][pred_idx, :, task_idx]}")
+                true_bins = torch.where(batch["is_event"][pred_idx, :, task_idx])[0]
+                print(f"  Prediction point {pred_idx}, task {task_idx}: True in bins {true_bins.tolist()}")
+                print(f"    Values: {batch['is_event'][pred_idx, :, task_idx]}")
+        # else:
+        #     print(f"DEBUG: All prediction_point-task combinations have at most one True value per time bins") 
+
+        # Debug: Check for prediction points where all time bins are False
+        # all_bins_false = ~torch.any(batch["is_event"], dim=1)  # [prediction_points, tasks]
+        # if torch.any(all_bins_false):
+        #     all_false_count = torch.sum(all_bins_false)
+        #     print(f"DEBUG: Found {all_false_count} prediction_pointtask combinations where all time bins are False")
+            
+        #     # Find specific indices where this happens
+        #     all_false_indices = torch.where(all_bins_false)
+        #     prediction_points = all_false_indices[0]
+        #     task_indices = all_false_indices[1]
+            
+        #     print(f"DEBUG: First 10 all-false cases:")
+        #     for i in range(min(10, len(prediction_points))):
+        #         pred_idx = prediction_points[i].item()
+        #         task_idx = task_indices[i].item()
+        #         print(f"  Prediction point {pred_idx}, task {task_idx}: {batch['is_event'][pred_idx, :, task_idx]}")
 
         # Force to always be negative
         # time_dependent_logits = -F.softplus(-time_dependent_logits)
@@ -279,34 +351,26 @@ class MOTORTaskHead(nn.Module):
 
         # Check for problematic cases where is_event is True in the last time bin
         # This shouldn't happen as the last bin should only contain censored cases
-        # last_bin_events = batch["is_event"][:, -1, :]  # [L, task_code]
-        # if torch.any(last_bin_events):
-        #     print(f"WARNING: Found {torch.sum(last_bin_events)} events in the last time bin!")
-        #     print(f"Last bin event mask shape: {last_bin_events.shape}")
-        #     print(f"Number of affected prediction points: {torch.sum(torch.any(last_bin_events, dim=1))}")
-        #     print(f"Affected task codes: {torch.unique(torch.where(last_bin_events)[1])}")
+        last_bin_events = batch["is_event"][:, -1, :]  # [L, task_code]
+        if torch.any(last_bin_events):
+            print(f"WARNING: Found {torch.sum(last_bin_events)} events in the last time bin!")
+            print(f"Last bin event mask shape: {last_bin_events.shape}")
+            print(f"Number of affected prediction points: {torch.sum(torch.any(last_bin_events, dim=1))}")
+            print(f"Affected task codes: {torch.unique(torch.where(last_bin_events)[1])}")
 
-        # how to know censor time of each subject
-        # try:
-        event_loss =  torch.where(batch["is_event"],  torch.log(time_dependent_logits), torch.log(integrated_logits)).mean()
-        # except:
-        #     print(integrated_logits[:, -1, :])
-
-        # survival_loss = torch.exp2(time_dependent_logits + batch["log_time"]).mean()
-        # event_loss = -math.log(2) * torch.where(batch["is_event"], time_dependent_logits, 0).mean()
-
-        # with torch.autocast(device_type="cuda", enabled=False):
-        #     actual = torch.exp2(time_dependent_logits.type(torch.float32) + batch["log_time"].type(torch.float32))
-        #     bad = torch.exp2(time_dependent_logits.type(torch.bfloat16) + batch["log_time"].type(torch.bfloat16)).type(torch.float32)
-
-        #     bias = self.task_layer.bias.reshape(1, 1, -1)
-        #     better = torch.exp2((time_dependent_logits - bias).type(torch.bfloat16) + (bias + batch["log_time"]).type(torch.bfloat16)).type(torch.float32)
-
-        #     bad_error = torch.mean((actual - bad) **2)
-        #     better_error = torch.mean((actual - better) **2)
-        #     var = torch.var(actual)
-
-        #     print(bad_error / var, better_error / var)
+            
+        event_loss = torch.where(
+            batch["is_event"], 
+            torch.log(time_dependent_logits_stable), 
+            torch.log(integrated_logits_stable)
+        ).mean()
+        
+        # Debug: Check final loss
+        if torch.isnan(event_loss) or torch.isinf(event_loss):
+            print(f"WARNING: NaN/inf detected in final event_loss: {event_loss}")
+            print(f"  batch is_event sum: {torch.sum(batch['is_event'])}")
+            print(f"  log(time_dependent_logits) range: {torch.log(time_dependent_logits_stable).min()} to {torch.log(time_dependent_logits_stable).max()}")
+            print(f"  log(integrated_logits) range: {torch.log(integrated_logits_stable).min()} to {torch.log(integrated_logits_stable).max()}")
 
         def stats(a):
             a = a[torch.isfinite(a)]

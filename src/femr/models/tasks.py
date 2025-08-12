@@ -366,6 +366,7 @@ class MOTORTask(Task):
 
         self.pretraining_task_codes = set()
         self.task_to_index_map = {}
+        # the self.pretraining_task_info is a list of tuples, each tuple is a task name, rate, num_events, num_censored, mean_time
         for i, task in enumerate(self.pretraining_task_info):
             self.pretraining_task_codes.add(task[0])
             self.task_to_index_map[task[0]] = i
@@ -459,6 +460,9 @@ class MOTORTask(Task):
                 "indptr": np.array(a["indptr"], dtype=np.int32),
             }
 
+        print(f"this batch return censor_time: {np.array(self.censor_time, dtype=np.float32)}")
+        print(f"this batch return time_sparse: {h(self.time_sparse, dtype=np.float32)}")
+
         return {
             "censor_time": np.array(self.censor_time, dtype=np.float32),
             "time_sparse": h(self.time_sparse, dtype=np.float32),
@@ -500,6 +504,7 @@ class MOTORTask(Task):
         is_event = torch.transpose(is_event, 0, 1).contiguous()
 
         return {"is_event": is_event, "log_time": log_time}
+    
         # Debug: Check for all-false bins during generation
         # all_bins_false = ~torch.any(is_event, dim=1)  # [prediction_points, tasks]
         # if torch.any(all_bins_false):
