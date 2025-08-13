@@ -15,7 +15,6 @@ logging.basicConfig(
     filemode='w',
 )
 
-
 def main(args):
     pretraining_data_path = pathlib.Path(args.pretraining_data)
     meds_reader_path = pathlib.Path(args.meds_reader)
