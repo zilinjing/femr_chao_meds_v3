@@ -196,7 +196,7 @@ if __name__ == "__main__":
 
 '''
 40 hours
-CUDA_VISIBLE_DEVICES=1 2,3,4,5 
+exportCUDA_VISIBLE_DEVICES=5,6
 
 python pretrain_motor.py \
   --pretraining_data /user/zj2398/cache/motor_mimic \
@@ -206,10 +206,10 @@ python pretrain_motor.py \
 
   17.5
 
-CUDA_VISIBLE_DEVICES=5,6,7 accelerate launch \
-  --num_processes 3 \
+CUDA_VISIBLE_DEVICES=5,6 accelerate launch \
+  --num_processes 2 \
   --mixed_precision bf16 \
-  --gpu_ids "5,6,7" \
+  --gpu_ids "5,6" \
   pretrain_motor.py \
   --pretraining_data /user/zj2398/cache/motor_mimic \
   --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
