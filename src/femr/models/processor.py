@@ -250,10 +250,10 @@ class BatchCreator:
             # update time_data with normalized time features
             if last_time is None:
                 per_subject_time_data.append([-1] + self.tokenizer.get_time_data(age, delta)[:2] + [0, 0])
-                print(f"last_time is None, per_subject_time_data added: {per_subject_time_data[-1]}")
+                # print(f"last_time is None, per_subject_time_data added: {per_subject_time_data[-1]}")
             else:
                 per_subject_time_data.append([0] + self.tokenizer.get_time_data(age, delta))
-                print(f"last_time is not None, per_subject_time_data added: {per_subject_time_data[-1]}")
+                # print(f"last_time is not None, per_subject_time_data added: {per_subject_time_data[-1]}")
 
             per_subject_timestamps.append(event.time.replace(tzinfo=datetime.timezone.utc).timestamp())
 
@@ -263,7 +263,7 @@ class BatchCreator:
         if self.task is not None and last_time is not None and last_time.date() > birth.date():
             num_added = self.task.add_event(last_time, None, None)
             for _ in range(num_added):
-                print(f"len(per_subject_ages) - 1 is : {len(per_subject_ages) - 1}, per_subject_ages: {per_subject_ages}")
+                # print(f"len(per_subject_ages) - 1 is : {len(per_subject_ages) - 1}, per_subject_ages: {per_subject_ages}")
                 per_subject_label_indices.append(len(per_subject_ages) - 1)
 
         # Now we want to actually add the subject data to the batch.
@@ -574,11 +574,11 @@ class FEMRBatchProcessor:
 
         batch_offsets.append(len(lengths))
 
-        print(f"batch_offsets: {batch_offsets}")
+        # print(f"batch_offsets: {batch_offsets}")
 
         # batches is a list of tuples (start_index, end_index) indicating the start and end subject indices of each batch
         batches = list(zip(batch_offsets, batch_offsets[1:]))
-        print(f"batches: {batches}")
+        # print(f"batches: {batches}")
         print("Got batches", len(batches))
 
         split_batches = np.array_split(batches, num_proc)
@@ -604,7 +604,7 @@ class FEMRBatchProcessor:
                 )
             )
 
-        print(f"final_batch_data: {final_batch_data}")
+        # print(f"final_batch_data: {final_batch_data}")
         batch_func = functools.partial(
             _batch_generator,
             creator=self.creator,

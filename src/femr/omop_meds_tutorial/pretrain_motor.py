@@ -142,9 +142,9 @@ def main():
 
         weight_decay=0.1,
         adam_beta2=0.95,
-        report_to="none",
-        # report_to=["wandb"],
-        run_name="motor_mimic",
+        # report_to="none",
+        report_to=["wandb"],
+        run_name="motor_mimic_bin_20",
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
         ddp_find_unused_parameters=False,
@@ -206,10 +206,10 @@ python pretrain_motor.py \
 
   17.5
 
-CUDA_VISIBLE_DEVICES=2,3,4,6 accelerate launch \
-  --num_processes 4 \
+CUDA_VISIBLE_DEVICES=5,6,7 accelerate launch \
+  --num_processes 3 \
   --mixed_precision bf16 \
-  --gpu_ids "2,3,4,6" \
+  --gpu_ids "5,6,7" \
   pretrain_motor.py \
   --pretraining_data /user/zj2398/cache/motor_mimic \
   --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \

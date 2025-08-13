@@ -244,9 +244,10 @@ def _prefit_motor_map(
         subjects: Iterator[meds_reader.Subject], *, tasks: List[str], ontology: femr.ontology.Ontology
 ) -> Any:
     task_time_stats: List[Any] = [[0, 0, femr.stat_utils.OnlineStatistics()] for _ in range(len(tasks))]
-    event_times = femr.stat_utils.ReservoirSampler(100_000)
+    # Create separate ReservoirSamplers for each task/event type
+    task_event_times = [femr.stat_utils.ReservoirSampler(100_000) for _ in range(len(tasks))]
     task_set = set(tasks)
-    print(f"task_set length: {len(task_set)}")
+    # print(f"task_set length: {len(task_set)}")
 
     # print(f"subject has {len(list(subjects))} objects.")
     for subject in subjects:
@@ -279,23 +280,26 @@ def _prefit_motor_map(
                 if is_censored:
                     task_time_stats[i][0] += 1
                 else:
-                    event_times.add(time.total_seconds(), 1)
+                    # Add to the specific task's event time sampler
+                    task_event_times[i].add(time.total_seconds(), 1)
                     task_time_stats[i][1] += 1
                 task_time_stats[i][2].add(1, time.total_seconds())
     # print(f"after subject {subject.subject_id}, task_time_stats: {task_time_stats}")
     print(f"prefit_motor_map is done")
-    return (event_times, task_time_stats)
+    return (task_event_times, task_time_stats)
 
 
 def _prefit_motor_agg(first: Any, second: Any) -> Any:
-    # first/second is (event_times, task_time_stats)
-    # for event_times, we use .combine() to add second group of elements to first group
+    # first/second is (task_event_times, task_time_stats)
+    # for task_event_times, we combine each task's ReservoirSampler separately
     # for task_time_stats, we add the number of events/censoring times, and combine the two groups of elements
     for a, b in zip(first[1], second[1]):
         a[0] += b[0]
         a[1] += b[1]
         a[2].combine(b[2])
-    first[0].combine(second[0])
+    # Combine each task's event times separately
+    for i in range(len(first[0])):
+        first[0][i].combine(second[0][i])
     return first
 
 
@@ -326,23 +330,35 @@ class MOTORTask(Task):
         # print(f"tasks: {tasks}")
         # apply _prefit_motor_map(subjects, tasks=tasks, ontology=tokenizer.ontology) and then use _prefit_motor_agg to aggregate the results
         print("before functools.reduce")
-        length_samples, stats = functools.reduce(
+        task_length_samples, stats = functools.reduce(
             _prefit_motor_agg, db.map(functools.partial(_prefit_motor_map, tasks=tasks, ontology=tokenizer.ontology))
         )
 
-        # print(f"length_samples samples: {length_samples.samples}")
-        # print(f"length_samples mean: {length_samples.mean()}")
+        # print(f"task_length_samples samples: {[len(sampler.samples) for sampler in task_length_samples]}")
         # print(f"stats: {stats}")
 
-        # percentile of a distribution with mean and std comuted from all time to next event
-        time_bins = np.percentile(length_samples.samples, np.linspace(0, 100, num_bins + 1))
-        time_bins[0] = 0
-        time_bins[-1] = float("inf")
-        time_bins = list(time_bins)
-
+        # Create time bins for each task separately, but all with the same number of bins
+        # time_bins becomes a 2D array: [num_tasks, num_bins+1]
+        # This allows each event type to have its own time discretization based on its specific distribution
+        # Each task gets bins optimized for its time-to-event distribution
+        # for i, length_samples in enumerate(task_length_samples):
+        #     if len(length_samples.samples) > 0:
+        #         task_time_bins = np.percentile(length_samples.samples, np.linspace(0, 100, num_bins + 1))
+        #         task_time_bins[0] = 0
+        #         task_time_bins[-1] = float("inf")
+        #         time_bins.append(list(task_time_bins))
+        #     else:
+        #         # If no events for this task, use default uniform bins
+        #         print(f"Warning: No events found for task {i} ({tasks[i]}), using default bins")
+        #         default_bins = [0] + [float(i+1) * 86400 for i in range(num_bins-1)] + [float("inf")]  # daily bins
+        #         time_bins.append(default_bins)
+        
+        # Convert to numpy array for easier handling
+        # time_bins = np.array(time_bins)  # Shape: [num_tasks, num_bins+1]
+        time_bins = []
         task_data = []
 
-        for task, task_stats in zip(tasks, stats):
+        for i,(task, task_stats) in enumerate(zip(tasks, stats)):
             frac_events = task_stats[1] / (task_stats[0] + task_stats[1])
             rate = frac_events / task_stats[2].mean()  # happening rate of the task num_points/time
 
@@ -356,12 +372,18 @@ class MOTORTask(Task):
                 continue
 
             task_data.append((task, rate, task_stats[0], task_stats[1], task_stats[2].mean()))
+            task_time_bins = np.percentile(task_length_samples[i].samples, np.linspace(0, 100, num_bins + 1))
+            task_time_bins[0] = 0
+            task_time_bins[-1] = float("inf")
+            time_bins.append(list(task_time_bins))
+        time_bins = np.array(time_bins) 
 
         return MOTORTask(task_data, time_bins, final_layer_size)
 
-    def __init__(self, pretraining_task_info: List[Tuple[str, float]], time_bins: List[float], final_layer_size: int):
+    def __init__(self, pretraining_task_info: List[Tuple[str, float]], time_bins: np.ndarray, final_layer_size: int):
         self.pretraining_task_info = pretraining_task_info
-        self.time_bins = time_bins
+        # Handle both numpy array and list (from config deserialization)
+        self.time_bins = np.array(time_bins) if not isinstance(time_bins, np.ndarray) else time_bins  # Now a 2D array: [num_tasks, num_bins+1]
         self.final_layer_size = final_layer_size
 
         self.pretraining_task_codes = set()
@@ -376,7 +398,7 @@ class MOTORTask(Task):
             task_type="motor",
             task_kwargs=dict(
                 pretraining_task_info=self.pretraining_task_info,
-                time_bins=self.time_bins,
+                time_bins=self.time_bins.tolist() if isinstance(self.time_bins, np.ndarray) else self.time_bins,
                 final_layer_size=self.final_layer_size,
             ),
         )
@@ -460,8 +482,8 @@ class MOTORTask(Task):
                 "indptr": np.array(a["indptr"], dtype=np.int32),
             }
 
-        print(f"this batch return censor_time: {np.array(self.censor_time, dtype=np.float32)}")
-        print(f"this batch return time_sparse: {h(self.time_sparse, dtype=np.float32)}")
+        # print(f"this batch return censor_time: {np.array(self.censor_time, dtype=np.float32)}")
+        # print(f"this batch return time_sparse: {h(self.time_sparse, dtype=np.float32)}")
 
         return {
             "censor_time": np.array(self.censor_time, dtype=np.float32),
@@ -469,69 +491,161 @@ class MOTORTask(Task):
         }
 
     def cleanup(self, batch: Mapping[str, torch.Tensor]) -> Mapping[str, torch.Tensor]:
-        num_time_bins = len(self.time_bins) - 1
-        num_tasks = len(self.pretraining_task_info)
+        """
+        Convert sparse time-to-event data into dense tensors for loss calculation.
+        
+        Fully vectorized implementation for efficiency at scale:
+        - Handles hundreds of prediction points × thousands of tasks × tens of bins efficiently
+        - Uses batch tensor operations instead of nested loops
+        
+        Design principle:
+        - For each prediction point and task, exactly ONE time bin should have is_event=True
+        - This represents either: (1) an event occurring in that interval, or (2) censoring in that interval
+        - is_censored flag distinguishes between event (False) and censoring (True) cases
+        
+        Returns:
+        - is_event: [prediction_points, time_bins, tasks] - exactly one True per prediction-task combination
+        - is_censored: [prediction_points, tasks] - True if the marked bin represents censoring
+        """
+        num_time_bins = self.time_bins.shape[1] - 1  # Each task has same number of bins
         num_indices = len(batch["censor_time"])
+        num_tasks = len(self.pretraining_task_info)
 
         def h(a):
+            # Get actual number of tasks from the sparse data
+            # if len(a["indices"]) > 0:
+            #     max_task_index = torch.max(a["indices"]).item()
+            #     actual_num_tasks = max_task_index + 1
+            # else:
+            #     # No events in this batch - use expected number of tasks
+            #     actual_num_tasks = len(self.pretraining_task_info)
+            
             shape = (num_indices, num_tasks)
             a = {k: v.numpy() for k, v in batch[a].items()}
             s = scipy.sparse.csr_array((a["data"], a["indices"], a["indptr"]), shape=shape)
             return torch.from_numpy(s.toarray())
 
+        # time shape: [pred_points, actual_task_points]
+        # time[pred_idx, task_idx] = 0 means no future event for this task
+        # time[pred_idx, task_idx] > 0 means time until next event for this task
         time = h("time_sparse")
-
-        log_time = torch.zeros(size=(num_time_bins, num_indices, num_tasks), dtype=torch.float16)
-        is_event = torch.zeros(size=(num_time_bins, num_indices, num_tasks), dtype=torch.bool)
-
-        is_event_global = time != 0
-
-        def inf_log(arr):
-            mask = arr != 0
-            arr[mask] = torch.log2(arr[mask])
-            arr[~mask] = -torch.inf
-
-            return arr
-
-        for i, (start, end) in enumerate(zip(self.time_bins, self.time_bins[1:])):
-            censor_time_in_bin = torch.unsqueeze(torch.clip(batch["censor_time"] - start, 0, float(end - start)), -1)
-            event_time_in_bin = torch.clip(time - start, 0, float(end - start))
-            time_in_bin = torch.where(is_event_global, event_time_in_bin, censor_time_in_bin)
-            log_time[i, :] = inf_log(time_in_bin)
-            is_event[i, :] = is_event_global & (start <= time) & (time < end)
-
-        log_time = torch.transpose(log_time, 0, 1).contiguous()
-        is_event = torch.transpose(is_event, 0, 1).contiguous()
-
-        return {"is_event": is_event, "log_time": log_time}
-    
-        # Debug: Check for all-false bins during generation
-        # all_bins_false = ~torch.any(is_event, dim=1)  # [prediction_points, tasks]
-        # if torch.any(all_bins_false):
-        #     all_false_count = torch.sum(all_bins_false)
-        #     print(f"DEBUG (Generation): Found {all_false_count} prediction_point×task combinations where all time bins are False")
+        
+        # Get actual dimensions from the data
+        num_tasks = time.shape[1]  # Use actual number of tasks from data
+        expected_num_tasks = len(self.pretraining_task_info)
+        
+        
+        # Convert to torch tensor for efficient operations
+        time = torch.from_numpy(time) if isinstance(time, np.ndarray) else time
+        censor_times = batch["censor_time"]  # [pred_points]
+        # print(f"censor_times: {censor_times}, censor_times.shape: {censor_times.shape}")
+        
+        # Initialize output tensors
+        is_event = torch.zeros(size=(num_indices, num_time_bins, num_tasks), dtype=torch.bool, device=time.device)
+        is_censored = torch.zeros(size=(num_indices, num_tasks), dtype=torch.bool, device=time.device)
+        
+        # has_future_event shape: [pred_points, task_points]
+        has_future_event = time != 0
+        
+        # Convert time_bins to torch tensor for vectorized operations
+        time_bins_tensor = torch.from_numpy(self.time_bins).to(device=time.device, dtype=time.dtype)  # [num_tasks, num_bins+1]
+        # print(f"time_bins_tensor: {time_bins_tensor}, time_bins_tensor.shape: {time_bins_tensor.shape}")
+        
+        # Vectorized approach: process all prediction points and tasks simultaneously
+        
+        # Expand dimensions for broadcasting
+        # time: [pred_points, task_points] -> [pred_points, 1, task_points] 
+        time_expanded = time.unsqueeze(1)  # [pred_points, 1, task_points]
+        
+        # censor_times: [pred_points] -> [pred_points, 1, 1]
+        censor_times_expanded = censor_times.unsqueeze(1).unsqueeze(2)  # [pred_points, 1, 1]
+        
+        # time_bins_tensor: [task_points, num_bins+1] -> [1, num_bins, task_points, 2]
+        # Extract start and end of each bin
+        bin_starts = time_bins_tensor[:, :-1].T.unsqueeze(0)  # [1, num_bins, task_points]
+        bin_ends = time_bins_tensor[:, 1:].T.unsqueeze(0)     # [1, num_bins, task_points]
+        
+        # bin_starts [1, 20, 8192]
+        # print(f"bin_starts: {bin_starts}, bin_starts.shape: {bin_starts.shape}")
+        # For events: check which bin each event time falls into
+        # Shape: [pred_points, num_bins, task_points]
+        event_in_bin = (has_future_event.unsqueeze(1) & 
+                       (bin_starts <= time_expanded) & 
+                       (time_expanded < bin_ends))
+        
+        # For censoring: check which bin each censor time falls into
+        # Shape: [pred_points, num_bins, task_points]  
+        censor_in_bin = ((~has_future_event).unsqueeze(1) & 
+                        (bin_starts <= censor_times_expanded) & 
+                        (censor_times_expanded < bin_ends))
+        
+        # Combine event and censoring cases
+        # Shape: [pred_points, num_bins, task_points]
+        is_event = event_in_bin | censor_in_bin
+        
+        # Set is_censored flag: True where we used censoring
+        # Shape: [pred_points, task_points]
+        is_censored = ~has_future_event
+        
+        # Validation: ensure exactly one bin per prediction-task combination
+        bins_per_pred_task = torch.sum(is_event, dim=1)  # [pred_points, task_points]
+        if not torch.all(bins_per_pred_task == 1):
+            # Handle edge cases where time falls exactly on bin boundary or outside all bins
+            print(f"Warning: {torch.sum(bins_per_pred_task != 1)} prediction-task combinations don't have exactly 1 bin marked")
             
-        #     # Find specific indices where this happens
-        #     all_false_indices = torch.where(all_bins_false)
-        #     prediction_points = all_false_indices[0]
-        #     task_indices = all_false_indices[1]
+            # Fix cases with 0 bins marked (time falls outside all bins - put in last bin)
+            zero_bins_mask = bins_per_pred_task == 0  # [pred_points, task_points]
+            if torch.any(zero_bins_mask):
+                # Set the last bin to True for these cases
+                pred_indices, task_indices = torch.where(zero_bins_mask)
+                is_event[pred_indices, -1, task_indices] = True
+                print(f"Fixed {len(pred_indices)} cases by assigning to last bin")
             
-        #     print(f"DEBUG (Generation): First 10 all-false cases:")
-        #     for i in range(min(10, len(prediction_points))):
-        #         pred_idx = prediction_points[i].item()
-        #         task_idx = task_indices[i].item()
-        #         print(f"  Prediction point {pred_idx}, task {task_idx}: {is_event[pred_idx, :, task_idx]}")
-                
-        #         # Also show the corresponding time information
-        #         time_vals = time[pred_idx, task_idx].item()
-        #         censor_time_val = batch["censor_time"][pred_idx].item()
-        #         print(f"    Time: {time_vals}, Censor time: {censor_time_val}")
-        #         print(f"    Time bins: {self.time_bins}")
-                
-        #         # Check which bins this time falls into
-        #         for bin_idx, (start, end) in enumerate(zip(self.time_bins, self.time_bins[1:])):
-        #             if time_vals == 0:
-        #                 print(f"    Time is 0 (no event) - should be censored case")
-        #             elif start <= time_vals < end:
-        #                 print(f"    Time {time_vals} falls in bin {bin_idx} [{start}, {end})")
+            # Fix cases with multiple bins marked (time falls on boundary - keep only first)
+            multiple_bins_mask = bins_per_pred_task > 1  # [pred_points, task_points]
+            if torch.any(multiple_bins_mask):
+                pred_indices, task_indices = torch.where(multiple_bins_mask)
+                for i in range(len(pred_indices)):
+                    pred_idx, task_idx = pred_indices[i], task_indices[i]
+                    # Find first True bin and set others to False
+                    true_bins = torch.where(is_event[pred_idx, :, task_idx])[0]
+                    is_event[pred_idx, true_bins[1:], task_idx] = False
+                print(f"Fixed {len(pred_indices)} cases by keeping only first marked bin")
 
+        return {"is_event": is_event, "is_censored": is_censored}
+
+
+'''
+
+516 -          is_event = torch.zeros(size=(num_indices, num_time_bins, num_tasks), dtype=torch.bool)
+517 -          is_censored = torch.zeros(size=(num_indices, num_tasks), dtype=torch.bool)
+525            has_future_event = time != 0
+526 -  
+527 -          # Process each prediction point and task combination
+528 -          for pred_idx in range(num_indices):
+529 -              censor_time_val = batch["censor_time"][pred_idx].item()          
+570 -              for task_idx in range(num_tasks):
+571 -                  task_time_bins = self.time_bins[task_idx]
+572 -                  
+573 -                  if has_future_event[pred_idx, task_idx]:
+574 -                      # This task has a future event - find which bin it falls into
+575 -                      event_time_val = time[pred_idx, task_idx].item()
+576 -                      
+577 -                      # Find the bin for this event
+578 -                      for bin_idx in range(num_time_bins):
+579 -                          start, end = task_time_bins[bin_idx], task_time_bins[bin_idx + 1]
+580 -                          if start <= event_time_val < end:
+581 -                              is_event[pred_idx, bin_idx, task_idx] = True
+582 -                              is_censored[pred_idx, task_idx] = False  # This is an event, not censoring
+583 -                              break
+584 -                  else:
+585 -                      # No future event for this task - mark censoring bin
+586 -                      # Find which bin the censor time falls into
+587 -                      for bin_idx in range(num_time_bins):
+588 -                          start, end = task_time_bins[bin_idx], task_time_bins[bin_idx + 1]
+589 -                          if start <= censor_time_val < end:
+590 -                              is_event[pred_idx, bin_idx, task_idx] = True
+591 -                              is_censored[pred_idx, task_idx] = True  # This is censoring
+592 -                              break
+589            return {"is_event": is_event, "is_censored": is_censored}
+'''

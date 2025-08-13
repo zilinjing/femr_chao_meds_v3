@@ -1,0 +1,118 @@
+[34m[1mwandb[0m: [33mWARNING[0m Serializing object of type ndarray that is 4928928 bytes
+  0%|                                                                                                 | 0/670800 [00:00<?, ?it/s]Could not estimate the number of tokens of the input, floating-point operations will not be computed
+  0%|                                                                                     | 9/670800 [02:29<640:14:25,  3.44s/it]Traceback (most recent call last):
+  File "/user/zj2398/femr_chao_meds_v3/src/femr/omop_meds_tutorial/pretrain_motor_bin_100.py", line 190, in <module>
+    main()
+  File "/user/zj2398/femr_chao_meds_v3/src/femr/omop_meds_tutorial/pretrain_motor_bin_100.py", line 183, in main
+    train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 2237, in train
+    return inner_training_loop(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 2578, in _inner_training_loop
+    tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 3792, in training_step
+    loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 3879, in compute_loss
+    outputs = model(**inputs)
+              ^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/parallel/distributed.py", line 1643, in forward
+    else self._run_ddp_forward(*inputs, **kwargs)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/parallel/distributed.py", line 1459, in _run_ddp_forward
+    return self.module(*inputs, **kwargs)  # type: ignore[index]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/accelerate/utils/operations.py", line 818, in forward
+    return model_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/accelerate/utils/operations.py", line 806, in __call__
+    return convert_to_fp32(self.model_forward(*args, **kwargs))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/amp/autocast_mode.py", line 44, in decorate_autocast
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/femr_chao_meds_v3/src/femr/models/transformer.py", line 409, in forward
+    loss, result = self.task_model(features, batch["task"], return_logits=return_logits)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/user/zj2398/femr_chao_meds_v3/src/femr/models/transformer.py", line 329, in forward
+    num_marked_bins = torch.sum(marked_bins)
+                      ^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.80 GiB. GPU 0 has a total capacity of 79.25 GiB of which 3.78 GiB is free. Process 1567148 has 41.84 GiB memory in use. Process 1695960 has 414.00 MiB memory in use. Including non-PyTorch memory, this process has 32.59 GiB memory in use. Process 1695961 has 414.00 MiB memory in use. Of the allocated memory 19.68 GiB is allocated by PyTorch, and 11.42 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/user/zj2398/femr_chao_meds_v3/src/femr/omop_meds_tutorial/pretrain_motor_bin_100.py", line 190, in <module>
+[rank0]:     main()
+[rank0]:   File "/user/zj2398/femr_chao_meds_v3/src/femr/omop_meds_tutorial/pretrain_motor_bin_100.py", line 183, in main
+[rank0]:     train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 2237, in train
+[rank0]:     return inner_training_loop(
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 2578, in _inner_training_loop
+[rank0]:     tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 3792, in training_step
+[rank0]:     loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/transformers/trainer.py", line 3879, in compute_loss
+[rank0]:     outputs = model(**inputs)
+[rank0]:               ^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/parallel/distributed.py", line 1643, in forward
+[rank0]:     else self._run_ddp_forward(*inputs, **kwargs)
+[rank0]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/parallel/distributed.py", line 1459, in _run_ddp_forward
+[rank0]:     return self.module(*inputs, **kwargs)  # type: ignore[index]
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/accelerate/utils/operations.py", line 818, in forward
+[rank0]:     return model_forward(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/accelerate/utils/operations.py", line 806, in __call__
+[rank0]:     return convert_to_fp32(self.model_forward(*args, **kwargs))
+[rank0]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/amp/autocast_mode.py", line 44, in decorate_autocast
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/femr_chao_meds_v3/src/femr/models/transformer.py", line 409, in forward
+[rank0]:     loss, result = self.task_model(features, batch["task"], return_logits=return_logits)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/.conda/envs/motor_chao/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/user/zj2398/femr_chao_meds_v3/src/femr/models/transformer.py", line 329, in forward
+[rank0]:     num_marked_bins = torch.sum(marked_bins)
+[rank0]:                       ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.80 GiB. GPU 0 has a total capacity of 79.25 GiB of which 3.78 GiB is free. Process 1567148 has 41.84 GiB memory in use. Process 1695960 has 414.00 MiB memory in use. Including non-PyTorch memory, this process has 32.59 GiB memory in use. Process 1695961 has 414.00 MiB memory in use. Of the allocated memory 19.68 GiB is allocated by PyTorch, and 11.42 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
