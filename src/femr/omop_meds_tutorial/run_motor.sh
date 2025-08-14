@@ -269,16 +269,16 @@ done
 
 echo "All tasks processed."
 
-# export CUDA_VISIBLE_DEVICES=2
-# bash run_motor.sh \
-#   --pretraining_data   /user/zj2398/cache/motor_mimic \
-#   --meds_reader        /user/zj2398/cache/mimic/meds_v0.6_reader \
-#   --num_proc           100 \
-#   --model_path         /user/zj2398/cache/motor_mimic/output/motor_8192 \
-#   --tokens_per_batch   65536 \
-#   --device             cuda:0 \
-#   --min_subjects_per_batch 8 \
-#   /user/zj2398/cache/mimic/mimic-3.1-meds/patient_outcome_tasks/task/
+# export CUDA_VISIBLE_DEVICES=0
+bash run_motor.sh \
+  --pretraining_data   /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_100 \
+  --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+  --num_proc           64 \
+  --model_path         /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_100/output/checkpoint-20123 \
+  --tokens_per_batch   65536 \
+  --device             cuda:0 \
+  --min_subjects_per_batch 8 \
+  /data/processed_datasets/processed_datasets/mimic/mimic_3.1/patient_outcome_tasks/
 
 
 

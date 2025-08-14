@@ -84,7 +84,7 @@ def main(args):
             motor_task = femr.models.tasks.MOTORTask.fit_pretraining_task_info(
                 main_database, tokenizer,
                 num_tasks=8 * 1024,
-                num_bins=20,
+                num_bins=args.num_bins,
                 final_layer_size=512,
                 codes_to_skip=codes_to_skip
             )
@@ -176,6 +176,14 @@ def create_omop_meds_tutorial_argparser():
         # this is decided based on the 99% percentile of the number of tokens
         default=8192,
     )
+    parser.add_argument(
+        "--num_bins",
+        dest="num_bins",
+        action="store",
+        required=False,
+        type=int,
+        default=8,
+    )
     return parser
 
 
@@ -183,16 +191,29 @@ if __name__ == "__main__":
     main(create_omop_meds_tutorial_argparser().parse_args())
 
 '''
+mimic
+gsb
 python prepare_motor.py \
   --pretraining_data /user/zj2398/cache/motor_mimic \
   --athena_path " " \
+  --num_bins 8 \
   --num_threads 100 \
   --meds_reader /user/zj2398/cache/mimic/meds_v0.6_reader 
 #   > out.log 2>&1  
 
+kuvira
 python prepare_motor.py \
-  --pretraining_data /user/zj2398/cache/motor_omop_mimic \
+  --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8 \
   --athena_path " " \
+  --num_bins 8 \
+  --num_threads 64 \
+  --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader
+
+cumc-kuvira
+python prepare_motor.py \
+  --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/cumc/motor_cumc_bin_8 \
+  --athena_path " " \
+  --num_bins 8 \
   --num_threads 100 \
-  --meds_reader /user/zj2398/cache/mimic_omop/mimic_omop_meds_reader
+  --meds_reader /data/processed_datasets/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader
 '''
