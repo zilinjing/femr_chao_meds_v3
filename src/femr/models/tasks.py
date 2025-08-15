@@ -5,7 +5,7 @@ import collections
 import datetime
 import functools
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
-
+import sys
 import meds
 import meds_reader
 import numpy as np
@@ -19,7 +19,14 @@ import femr.ontology
 import femr.pat_utils
 import femr.stat_utils
 import random
+import logging
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    filename='prepare_motor_task.log',
+    filemode='w',
+)
 
 class Task(abc.ABC):
     def __init__(self):
@@ -391,7 +398,7 @@ class MOTORTask(Task):
         # the self.pretraining_task_info is a list of tuples, each tuple is a task name, rate, num_events, num_censored, mean_time
         for i, task in enumerate(self.pretraining_task_info):
             self.pretraining_task_codes.add(task[0])
-            self.task_to_index_map[task[0]] = i
+            self.task_to_index_map[task[0]] = i  # task_to_index_map is a dictionary, key is the task name, value is the index
 
     def get_task_config(self) -> femr.models.config.FEMRTaskConfig:
         return femr.models.config.FEMRTaskConfig(
@@ -471,6 +478,8 @@ class MOTORTask(Task):
             self.per_subject_time_sparse["indices"].append(j)
 
         self.per_subject_time_sparse["indptr"].append(len(self.per_subject_time_sparse["data"]))
+        # print(f"add event {len(self.per_subject_time_sparse['data'])}")
+        # print(f"add event {len(self.per_subject_time_sparse['indptr'])}")
 
         return 1
 
@@ -482,8 +491,10 @@ class MOTORTask(Task):
                 "indptr": np.array(a["indptr"], dtype=np.int32),
             }
 
-        # print(f"this batch return censor_time: {np.array(self.censor_time, dtype=np.float32)}")
-        # print(f"this batch return time_sparse: {h(self.time_sparse, dtype=np.float32)}")
+        # print(f"this batch return censor_time shape: {np.array(self.censor_time, dtype=np.float32).shape}")
+        # print(f"this batch return data shape: {h(self.time_sparse, dtype=np.float32)['data'].shape}")
+        # print(f"this batch return indices shape: {h(self.time_sparse, dtype=np.float32)['indices'].shape}")
+        # print(f"this batch return indptr shape: {h(self.time_sparse, dtype=np.float32)['indptr'].shape}")
 
         return {
             "censor_time": np.array(self.censor_time, dtype=np.float32),
@@ -521,14 +532,23 @@ class MOTORTask(Task):
             #     actual_num_tasks = len(self.pretraining_task_info)
             
             shape = (num_indices, num_tasks)
+            # print(f"batch[a] is {batch[a]}")
             a = {k: v.numpy() for k, v in batch[a].items()}
+            # print(f"a['data'] is {len(a['data'])},first 10 elements: {a['data'][:10]}, last 10 elements: {a['data'][-10:]}")
+            # print(f"a['indices'] is {len(a['indices'])},first 10 elements: {a['indices'][:10]}, last 10 elements: {a['indices'][-10:]}")
+            # print(f"a['indptr'] is {len(a['indptr'])},first 10 elements: {a['indptr'][:10]}, last 10 elements: {a['indptr'][-10:]}")
             s = scipy.sparse.csr_array((a["data"], a["indices"], a["indptr"]), shape=shape)
-            return torch.from_numpy(s.toarray())
+            time_return = torch.from_numpy(s.toarray())
+            # print(f"s is {s.shape}, {s}")
+            print(f"time_return is {time_return.shape}, {time_return}")
+            return time_return
 
         # time shape: [pred_points, actual_task_points]
         # time[pred_idx, task_idx] = 0 means no future event for this task
         # time[pred_idx, task_idx] > 0 means time until next event for this task
         time = h("time_sparse")
+        logging.info(f"time shape: {time.shape}")
+        logging.info(f"time is {time}")
         
         # Get actual dimensions from the data
         num_tasks = time.shape[1]  # Use actual number of tasks from data
@@ -538,7 +558,7 @@ class MOTORTask(Task):
         # Convert to torch tensor for efficient operations
         time = torch.from_numpy(time) if isinstance(time, np.ndarray) else time
         censor_times = batch["censor_time"]  # [pred_points]
-        # print(f"censor_times: {censor_times}, censor_times.shape: {censor_times.shape}")
+        logging.info(f"censor_times.shape: {censor_times.shape}")
         
         # Initialize output tensors
         is_event = torch.zeros(size=(num_indices, num_time_bins, num_tasks), dtype=torch.bool, device=time.device)
@@ -546,6 +566,7 @@ class MOTORTask(Task):
         
         # has_future_event shape: [pred_points, task_points]
         has_future_event = time != 0
+        # print(f"has_future_event.shape: {has_future_event.shape}, sum: {has_future_event.sum()}, ratio: {has_future_event.sum()/has_future_event.numel()}")
         
         # Convert time_bins to torch tensor for vectorized operations
         time_bins_tensor = torch.from_numpy(self.time_bins).to(device=time.device, dtype=time.dtype)  # [num_tasks, num_bins+1]
@@ -569,6 +590,7 @@ class MOTORTask(Task):
         # print(f"bin_starts: {bin_starts}, bin_starts.shape: {bin_starts.shape}")
         # For events: check which bin each event time falls into
         # Shape: [pred_points, num_bins, task_points]
+        logging.info(f"has_future_event.shape: {has_future_event.shape}")
         event_in_bin = (has_future_event.unsqueeze(1) & 
                        (bin_starts <= time_expanded) & 
                        (time_expanded < bin_ends))
@@ -578,10 +600,16 @@ class MOTORTask(Task):
         censor_in_bin = ((~has_future_event).unsqueeze(1) & 
                         (bin_starts <= censor_times_expanded) & 
                         (censor_times_expanded < bin_ends))
+        logging.info(f"event_in_bin.shape: {event_in_bin.shape}")
+        logging.info(f"distribution of event_in_bin: {event_in_bin.sum(dim=0).sum(dim=1)/event_in_bin.sum()}")
+        logging.info(f"censor_in_bin.shape: {censor_in_bin.shape}")
+        logging.info(f"distribution of censor_in_bin: {censor_in_bin.sum(dim=0).sum(dim=1)/censor_in_bin.sum()}")
         
         # Combine event and censoring cases
         # Shape: [pred_points, num_bins, task_points]
         is_event = event_in_bin | censor_in_bin
+        # logging.info(f"is_event {is_event}, is_event.shape: {is_event.shape}")
+        # logging.info(f"distribution of is_event: {is_event.sum(dim=0).sum(dim=1)/is_event.sum()}")
         
         # Set is_censored flag: True where we used censoring
         # Shape: [pred_points, task_points]
@@ -589,6 +617,8 @@ class MOTORTask(Task):
         
         # Validation: ensure exactly one bin per prediction-task combination
         bins_per_pred_task = torch.sum(is_event, dim=1)  # [pred_points, task_points]
+
+
         if not torch.all(bins_per_pred_task == 1):
             # Handle edge cases where time falls exactly on bin boundary or outside all bins
             print(f"Warning: {torch.sum(bins_per_pred_task != 1)} prediction-task combinations don't have exactly 1 bin marked")
@@ -611,6 +641,7 @@ class MOTORTask(Task):
                     true_bins = torch.where(is_event[pred_idx, :, task_idx])[0]
                     is_event[pred_idx, true_bins[1:], task_idx] = False
                 print(f"Fixed {len(pred_indices)} cases by keeping only first marked bin")
+        # sys.exit()
 
         return {"is_event": is_event, "is_censored": is_censored}
 

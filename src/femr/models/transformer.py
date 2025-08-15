@@ -284,7 +284,8 @@ class MOTORTaskHead(nn.Module):
             
         assert torch.allclose(sum(time_dependent_logits[0,:,0]), torch.tensor(1.0), atol=1e-1), f" time_dependent_logits: {time_dependent_logits[0,:,0]}"
         #
-        integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
+        # integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
+        integrated_logits = torch.cat([torch.ones_like(time_dependent_logits[:, :1, :]), 1.0 - time_dependent_logits[:, :-1, :]], dim=1)
         # Verify input shapes match our expectations
         assert (
                 batch["is_event"].shape == time_dependent_logits.shape
@@ -334,6 +335,7 @@ class MOTORTaskHead(nn.Module):
             loss = -torch.sum(loss_values) / num_marked_bins  # Negative log likelihood
         else:
             loss = torch.tensor(0.0, device=marked_bins.device)
+        print(f"loss: {loss}")
         
         # Debug: Check for issues
         if torch.isnan(loss) or torch.isinf(loss):

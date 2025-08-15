@@ -131,6 +131,7 @@ class BatchCreator:
             max_length: The maximum length of the batch sequence. There is no max when left at None.
 
         """
+        # print(f"add_subject starts --------------------")
         current_date = None
         last_time = None
 
@@ -183,6 +184,7 @@ class BatchCreator:
         per_subject_time_data.append([1, 0, 0, 0, 0])
         per_subject_timestamps.append(event.time.replace(tzinfo=datetime.timezone.utc).timestamp())
                 
+        
         for event in subject.events:
             if event.time is None or (
                     event.time.date() <= birth.date()
@@ -217,6 +219,7 @@ class BatchCreator:
 
             codes_seen_today |= set(features)
 
+            # print(f"iterate event {self.task}, last_time is {last_time}, event.time is {event.time}, features is {features}, actually_add is {actually_add} --------------------")
             #  Label Generation  don't understand
             if (self.task is not None) and (last_time is not None):
                 # Now we have to consider whether or not to have labels for this time step
@@ -349,6 +352,7 @@ class BatchCreator:
 
     def get_batch_data(self):
         """Convert the batch to numpy arrays. The data structure is defined inline in this function."""
+        # print(f"get_batch_data starts --------------------")
         if self.tokenizer.vocab_size <= 2**15:
             token_dtype = np.int16
         else:
@@ -386,14 +390,6 @@ class BatchCreator:
             "offsets": np.array(self.offsets, dtype=np.int32),
             "transformer": transformer,
         }
-        # print(f"final: {final}")
-        # logger.info(f"final: {final}")
-        # print(len(self.subject_lengths))
-        # print(len(self.label_indices))
-        # print(len(self.subject_ids))
-        # print(len(self.offsets))
-        # print(f"transformer: {transformer}")
-        # logger.info(f"transformer: {transformer}")
 
         # Add the task data
         if self.task is not None and transformer["label_indices"].shape[0] > 0:
@@ -502,6 +498,7 @@ class FEMRBatchProcessor:
             A batch, ready to be fed into a FEMR transformer model
         """
         self.creator.start_batch()
+        # print(f"convert_subject starts --------------------")
         self.creator.add_subject(subject, offset=offset, max_length=max_length, actually_add=actually_add)
         batch_data = self.creator.get_batch_data()
         # by default, tensor_type is None

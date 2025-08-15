@@ -210,11 +210,11 @@ CUDA_VISIBLE_DEVICES=0,1,2 accelerate launch \
   --output_dir /user/zj2398/cache/motor_mimic_bin_100/output
 
 kuvira
-CUDA_VISIBLE_DEVICES=1,3 accelerate launch \
-  --num_processes 2 \
+CUDA_VISIBLE_DEVICES=3 accelerate launch \
+  --num_processes 1 \
   --mixed_precision bf16 \
-  --gpu_ids "1,3" \
-  pretrain_motor_bin_100.py \
+  --gpu_ids "3" \
+  pretrain_motor_bin_8.py \
   --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_100 \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \

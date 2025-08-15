@@ -9,11 +9,11 @@ import femr.models.processor
 import pandas as pd
 import polars as pl
 import logging
-logging.basicConfig(
-    level=logging.INFO,
-    filename='motor.log',
-    filemode='w',
-)
+# logging.basicConfig(
+#     level=logging.INFO,
+#     filename='motor.log',
+#     filemode='w',
+# )
 
 def main(args):
     pretraining_data_path = pathlib.Path(args.pretraining_data)
@@ -115,7 +115,7 @@ def main(args):
         if not train_batches_path.exists():
             print("Convert batches")
             # But generally we want to convert entire datasets
-            train_batches = processor.convert_dataset(train_database, tokens_per_batch=args.tokens_per_batch, num_proc=128)
+            train_batches = processor.convert_dataset(train_database, tokens_per_batch=args.tokens_per_batch, num_proc=1)
 
             print("Convert batches to pytorch")
             # Convert our batches to pytorch tensors
@@ -126,7 +126,7 @@ def main(args):
 
         if not val_batches_path.exists():
             print("Convert val batches")
-            val_batches = processor.convert_dataset(val_database, tokens_per_batch=args.tokens_per_batch, num_proc=128)
+            val_batches = processor.convert_dataset(val_database, tokens_per_batch=args.tokens_per_batch, num_proc=1)
             # Convert our batches to pytorch tensors
             val_batches.set_format("pt")
             val_batches.save_to_disk(val_batches_path)

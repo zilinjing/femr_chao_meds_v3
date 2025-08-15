@@ -341,6 +341,7 @@ class MOTORTaskHead(nn.Module):
         # print(self.task_layer.bias.unsqueeze(0).unsqueeze(0) + batch["log_time"])
 
         loss = survival_loss + event_loss
+        print(f"loss: {loss}")
 
         if not return_logits:
             time_dependent_logits = None
