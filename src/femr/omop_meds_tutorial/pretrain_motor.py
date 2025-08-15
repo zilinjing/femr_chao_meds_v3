@@ -10,6 +10,8 @@ import femr.models.tokenizer
 import femr.models.processor
 from femr.omop_meds_tutorial.generate_labels import create_omop_meds_tutorial_arg_parser
 import torch.nn as nn
+from transformers import TrainerCallback
+import wandb
 
 class CustomEarlyStoppingCallback(transformers.EarlyStoppingCallback):
     def check_metric_value(self, args, state, control, metric_value):
@@ -75,6 +77,33 @@ def create_arg_parser():
 def count_parameters(model: nn.Module) -> int:
     """Counts the number of trainable parameters in a model."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+class WandbTrainLossCallback(transformers.TrainerCallback):
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is None:
+            return
+        log_data = {}
+        
+        # Train loss vs step
+        if "loss" in logs:
+            log_data["train/loss_step"] = logs["loss"]
+        
+        # Eval loss vs step
+        if "eval_loss" in logs:
+            log_data["eval/loss_step"] = logs["eval_loss"]
+        
+        # Add epoch-based logging
+        if "loss" in logs:
+            log_data["train/loss_epoch"] = logs["loss"]
+        if "eval_loss" in logs:
+            log_data["eval/loss_epoch"] = logs["eval_loss"]
+        
+        # Record step and epoch for W&B axes
+        log_data["global_step"] = state.global_step
+        log_data["epoch"] = state.epoch
+        
+        wandb.log(log_data)
+
 
 def main():
     args = create_arg_parser().parse_args()
@@ -142,9 +171,9 @@ def main():
 
         weight_decay=0.1,
         adam_beta2=0.95,
-        report_to="none",
-        # report_to=["wandb"],
-        run_name="motor_mimic_bin_20",
+        # report_to="none",
+        report_to=["wandb"],
+        run_name="motor_mimic_bin_8",
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
         ddp_find_unused_parameters=False,
@@ -152,6 +181,7 @@ def main():
         warmup_steps=500,
 
         logging_strategy='epoch',
+        # logging_strategy='steps',
         logging_steps=10,
 
         save_strategy='epoch',
@@ -160,7 +190,7 @@ def main():
 
         # prediction_loss_only=True,
         # dataloader_num_workers=1,
-        dataloader_num_workers=1,
+        dataloader_num_workers=64,
 
         save_total_limit=10,
         load_best_model_at_end=True,
@@ -196,7 +226,7 @@ if __name__ == "__main__":
 
 '''
 40 hours
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1,3
 
 python pretrain_motor.py \
   --pretraining_data /user/zj2398/cache/motor_mimic \
@@ -218,10 +248,10 @@ CUDA_VISIBLE_DEVICES=0,1,2 accelerate launch \
   --output_dir /user/zj2398/cache/motor_mimic_bin_100/output
 
 kuvira
-CUDA_VISIBLE_DEVICES=3 accelerate launch \
-  --num_processes 1 \
+CUDA_VISIBLE_DEVICES=1,3 accelerate launch \
+  --num_processes 2 \
   --mixed_precision bf16 \
-  --gpu_ids "3" \
+  --gpu_ids "1,3" \
   pretrain_motor.py \
   --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8 \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \

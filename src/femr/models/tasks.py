@@ -540,15 +540,15 @@ class MOTORTask(Task):
             s = scipy.sparse.csr_array((a["data"], a["indices"], a["indptr"]), shape=shape)
             time_return = torch.from_numpy(s.toarray())
             # print(f"s is {s.shape}, {s}")
-            print(f"time_return is {time_return.shape}, {time_return}")
+            # print(f"time_return is {time_return.shape}, {time_return}")
             return time_return
 
         # time shape: [pred_points, actual_task_points]
         # time[pred_idx, task_idx] = 0 means no future event for this task
         # time[pred_idx, task_idx] > 0 means time until next event for this task
         time = h("time_sparse")
-        logging.info(f"time shape: {time.shape}")
-        logging.info(f"time is {time}")
+        # logging.info(f"time shape: {time.shape}")
+        # logging.info(f"time is {time}")
         
         # Get actual dimensions from the data
         num_tasks = time.shape[1]  # Use actual number of tasks from data
@@ -558,7 +558,7 @@ class MOTORTask(Task):
         # Convert to torch tensor for efficient operations
         time = torch.from_numpy(time) if isinstance(time, np.ndarray) else time
         censor_times = batch["censor_time"]  # [pred_points]
-        logging.info(f"censor_times.shape: {censor_times.shape}")
+        # logging.info(f"censor_times.shape: {censor_times.shape}")
         
         # Initialize output tensors
         is_event = torch.zeros(size=(num_indices, num_time_bins, num_tasks), dtype=torch.bool, device=time.device)
@@ -590,7 +590,6 @@ class MOTORTask(Task):
         # print(f"bin_starts: {bin_starts}, bin_starts.shape: {bin_starts.shape}")
         # For events: check which bin each event time falls into
         # Shape: [pred_points, num_bins, task_points]
-        logging.info(f"has_future_event.shape: {has_future_event.shape}")
         event_in_bin = (has_future_event.unsqueeze(1) & 
                        (bin_starts <= time_expanded) & 
                        (time_expanded < bin_ends))
@@ -600,10 +599,10 @@ class MOTORTask(Task):
         censor_in_bin = ((~has_future_event).unsqueeze(1) & 
                         (bin_starts <= censor_times_expanded) & 
                         (censor_times_expanded < bin_ends))
-        logging.info(f"event_in_bin.shape: {event_in_bin.shape}")
-        logging.info(f"distribution of event_in_bin: {event_in_bin.sum(dim=0).sum(dim=1)/event_in_bin.sum()}")
-        logging.info(f"censor_in_bin.shape: {censor_in_bin.shape}")
-        logging.info(f"distribution of censor_in_bin: {censor_in_bin.sum(dim=0).sum(dim=1)/censor_in_bin.sum()}")
+        # logging.info(f"event_in_bin.shape: {event_in_bin.shape}")
+        # logging.info(f"distribution of event_in_bin: {event_in_bin.sum(dim=0).sum(dim=1)/event_in_bin.sum()}")
+        # logging.info(f"censor_in_bin.shape: {censor_in_bin.shape}")
+        # logging.info(f"distribution of censor_in_bin: {censor_in_bin.sum(dim=0).sum(dim=1)/censor_in_bin.sum()}")
         
         # Combine event and censoring cases
         # Shape: [pred_points, num_bins, task_points]
@@ -621,15 +620,16 @@ class MOTORTask(Task):
 
         if not torch.all(bins_per_pred_task == 1):
             # Handle edge cases where time falls exactly on bin boundary or outside all bins
-            print(f"Warning: {torch.sum(bins_per_pred_task != 1)} prediction-task combinations don't have exactly 1 bin marked")
-            
+            logging.info(f"Warning: {torch.sum(bins_per_pred_task != 1)}, bins_per_pred_task: {bins_per_pred_task}, prediction-task combinations don't have exactly 1 bin marked")
+            logging.info(f"event_in_bin.shape: {event_in_bin.shape}")
+
             # Fix cases with 0 bins marked (time falls outside all bins - put in last bin)
             zero_bins_mask = bins_per_pred_task == 0  # [pred_points, task_points]
             if torch.any(zero_bins_mask):
                 # Set the last bin to True for these cases
                 pred_indices, task_indices = torch.where(zero_bins_mask)
                 is_event[pred_indices, -1, task_indices] = True
-                print(f"Fixed {len(pred_indices)} cases by assigning to last bin")
+                logging.info(f"Fixed {len(pred_indices)} cases by assigning to last bin")
             
             # Fix cases with multiple bins marked (time falls on boundary - keep only first)
             multiple_bins_mask = bins_per_pred_task > 1  # [pred_points, task_points]
@@ -640,7 +640,7 @@ class MOTORTask(Task):
                     # Find first True bin and set others to False
                     true_bins = torch.where(is_event[pred_idx, :, task_idx])[0]
                     is_event[pred_idx, true_bins[1:], task_idx] = False
-                print(f"Fixed {len(pred_indices)} cases by keeping only first marked bin")
+                logging.info(f"Fixed {len(pred_indices)} cases by keeping only first marked bin")
         # sys.exit()
 
         return {"is_event": is_event, "is_censored": is_censored}

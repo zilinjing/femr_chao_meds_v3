@@ -335,7 +335,6 @@ class MOTORTaskHead(nn.Module):
             loss = -torch.sum(loss_values) / num_marked_bins  # Negative log likelihood
         else:
             loss = torch.tensor(0.0, device=marked_bins.device)
-        print(f"loss: {loss}")
         
         # Debug: Check for issues
         if torch.isnan(loss) or torch.isinf(loss):
