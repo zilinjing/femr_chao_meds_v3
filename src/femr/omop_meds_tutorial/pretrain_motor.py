@@ -190,7 +190,7 @@ def main():
 
         # prediction_loss_only=True,
         # dataloader_num_workers=1,
-        dataloader_num_workers=64,
+        dataloader_num_workers=32,
 
         save_total_limit=10,
         load_best_model_at_end=True,
@@ -226,7 +226,7 @@ if __name__ == "__main__":
 
 '''
 40 hours
-export CUDA_VISIBLE_DEVICES=1,3
+export CUDA_VISIBLE_DEVICES=3
 
 python pretrain_motor.py \
   --pretraining_data /user/zj2398/cache/motor_mimic \
@@ -248,10 +248,10 @@ CUDA_VISIBLE_DEVICES=0,1,2 accelerate launch \
   --output_dir /user/zj2398/cache/motor_mimic_bin_100/output
 
 kuvira
-CUDA_VISIBLE_DEVICES=1,3 accelerate launch \
-  --num_processes 2 \
+CUDA_VISIBLE_DEVICES=3 accelerate launch \
+  --num_processes 1 \
   --mixed_precision bf16 \
-  --gpu_ids "1,3" \
+  --gpu_ids "3" \
   pretrain_motor.py \
   --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8 \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \

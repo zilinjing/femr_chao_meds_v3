@@ -115,7 +115,7 @@ def main(args):
         if not train_batches_path.exists():
             print("Convert batches")
             # But generally we want to convert entire datasets
-            train_batches = processor.convert_dataset(train_database, tokens_per_batch=args.tokens_per_batch, num_proc=1)
+            train_batches = processor.convert_dataset(train_database, tokens_per_batch=args.tokens_per_batch, num_proc=32)
 
             print("Convert batches to pytorch")
             # Convert our batches to pytorch tensors
@@ -126,7 +126,7 @@ def main(args):
 
         if not val_batches_path.exists():
             print("Convert val batches")
-            val_batches = processor.convert_dataset(val_database, tokens_per_batch=args.tokens_per_batch, num_proc=1)
+            val_batches = processor.convert_dataset(val_database, tokens_per_batch=args.tokens_per_batch, num_proc=32)
             # Convert our batches to pytorch tensors
             val_batches.set_format("pt")
             val_batches.save_to_disk(val_batches_path)
@@ -214,6 +214,6 @@ python prepare_motor.py \
   --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/cumc/motor_cumc_bin_8 \
   --athena_path " " \
   --num_bins 8 \
-  --num_threads 100 \
+  --num_threads 16 \
   --meds_reader /data/processed_datasets/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader
 '''

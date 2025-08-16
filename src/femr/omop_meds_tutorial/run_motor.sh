@@ -269,7 +269,7 @@ done
 
 echo "All tasks processed."
 
-# export CUDA_VISIBLE_DEVICES=0
+# export CUDA_VISIBLE_DEVICES=3
 # bash run_motor.sh \
 #   --pretraining_data   /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8 \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
