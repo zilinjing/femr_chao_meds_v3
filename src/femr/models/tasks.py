@@ -585,6 +585,7 @@ class MOTORTask(Task):
         # Extract start and end of each bin
         bin_starts = time_bins_tensor[:, :-1].T.unsqueeze(0)  # [1, num_bins, task_points]
         bin_ends = time_bins_tensor[:, 1:].T.unsqueeze(0)     # [1, num_bins, task_points]
+        bin_widths = bin_ends - bin_starts
         
         # bin_starts [1, 20, 8192]
         # print(f"bin_starts: {bin_starts}, bin_starts.shape: {bin_starts.shape}")
@@ -599,6 +600,9 @@ class MOTORTask(Task):
         censor_in_bin = ((~has_future_event).unsqueeze(1) & 
                         (bin_starts <= censor_times_expanded) & 
                         (censor_times_expanded < bin_ends))
+        
+        censor_time_ratio = ((censor_times_expanded - bin_starts) / bin_widths) * censor_in_bin
+      
         # logging.info(f"event_in_bin.shape: {event_in_bin.shape}")
         # logging.info(f"distribution of event_in_bin: {event_in_bin.sum(dim=0).sum(dim=1)/event_in_bin.sum()}")
         # logging.info(f"censor_in_bin.shape: {censor_in_bin.shape}")
@@ -643,11 +647,11 @@ class MOTORTask(Task):
                 logging.info(f"Fixed {len(pred_indices)} cases by keeping only first marked bin")
         # sys.exit()
 
-        return {"is_event": is_event, "is_censored": is_censored}
+        return {"is_event": is_event, "is_censored": is_censored, "censor_time_ratio": censor_time_ratio}
 
 
 '''
-
+  censor_time_ratio = (censor_times_expanded-bin_starts)/(bin_ends-bin_starts) & censor_in_bin
 516 -          is_event = torch.zeros(size=(num_indices, num_time_bins, num_tasks), dtype=torch.bool)
 517 -          is_censored = torch.zeros(size=(num_indices, num_tasks), dtype=torch.bool)
 525            has_future_event = time != 0

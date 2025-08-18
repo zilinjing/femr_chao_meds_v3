@@ -72,6 +72,12 @@ def create_arg_parser():
         type=int,
         default=1
     )
+    arg_parser.add_argument(
+        "--linear_interpolation",
+        dest="linear_interpolation",
+        type=bool,
+        default=False
+    )
     return arg_parser
 
 def count_parameters(model: nn.Module) -> int:
@@ -149,8 +155,8 @@ def main():
         motor_task.get_task_config()
     )
 
-    print(f"Transformer config: {transformer_config}")
-    model = femr.models.transformer.FEMRModel(config,attn_implementation="flash_attention_2")
+    # print(f"Transformer config: {transformer_config}")
+    model = femr.models.transformer.FEMRModel(args.linear_interpolation,config,attn_implementation="flash_attention_2")
     model = model.to(torch.device("cuda:0"))
 
 
@@ -173,7 +179,7 @@ def main():
         adam_beta2=0.95,
         # report_to="none",
         report_to=["wandb"],
-        run_name="motor_mimic_bin_8",
+        run_name="deephit_mimic_bin_8_corrected",
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
         ddp_find_unused_parameters=False,
@@ -190,7 +196,7 @@ def main():
 
         # prediction_loss_only=True,
         # dataloader_num_workers=1,
-        dataloader_num_workers=32,
+        dataloader_num_workers=64,
 
         save_total_limit=10,
         load_best_model_at_end=True,
@@ -248,6 +254,17 @@ CUDA_VISIBLE_DEVICES=0,1,2 accelerate launch \
   --output_dir /user/zj2398/cache/motor_mimic_bin_100/output
 
 kuvira
+CUDA_VISIBLE_DEVICES=0 accelerate launch \
+  --num_processes 1 \
+  --mixed_precision bf16 \
+  --gpu_ids "0" \
+  pretrain_motor.py \
+  --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8 \
+  --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8/output_exlude_corrected 
+
+
 CUDA_VISIBLE_DEVICES=3 accelerate launch \
   --num_processes 1 \
   --mixed_precision bf16 \
@@ -256,5 +273,6 @@ CUDA_VISIBLE_DEVICES=3 accelerate launch \
   --pretraining_data /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8 \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \
-  --output_dir /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8/output
+  --output_dir /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8/output_linear_interpolation \
+  --linear_interpolation True
 '''
