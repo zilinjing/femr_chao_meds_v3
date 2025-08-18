@@ -284,8 +284,9 @@ class MOTORTaskHead(nn.Module):
             
         assert torch.allclose(sum(time_dependent_logits[0,:,0]), torch.tensor(1.0), atol=1e-1), f" time_dependent_logits: {time_dependent_logits[0,:,0]}"
         #
-        integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
-        # integrated_logits = torch.cat([torch.ones_like(time_dependent_logits[:, :1, :]), 1.0 - time_dependent_logits[:, :-1, :]], dim=1)
+        # integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
+        cdf = torch.sum(time_dependent_logits)
+        integrated_logits = torch.cat([torch.ones_like(time_dependent_logits[:, :1, :]), 1.0 - cdf[:, :-1, :]], dim=1)
         # Verify input shapes match our expectations
         assert (
                 batch["is_event"].shape == time_dependent_logits.shape
