@@ -614,6 +614,7 @@ class FEMRBatchProcessor:
                 "batch_data": final_batch_data,
             },
             num_proc=num_proc // 4,
+            # num_proc=1,
             writer_batch_size=8,
         )
 

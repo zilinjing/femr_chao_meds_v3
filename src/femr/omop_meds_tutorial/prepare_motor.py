@@ -99,12 +99,12 @@ def main(args):
         # print(f"Motor task length: {len(motor_task.pretraining_task_codes)}")
         processor = femr.models.processor.FEMRBatchProcessor(tokenizer, motor_task)
 
-        example_subject_id = list(train_database)[0]
-        example_subject = train_database[example_subject_id]
+        # example_subject_id = list(train_database)[0]
+        # example_subject = train_database[example_subject_id]
 
         # We can do this one subject at a time
-        print("Convert a single subject")
-        example_batch = processor.collate([processor.convert_subject(example_subject, tensor_type='pt')])
+        # print("Convert a single subject")
+        # example_batch = processor.collate([processor.convert_subject(example_subject, tensor_type='pt')])
         # print(f"example subject_id {example_subject_id} , example_subject: {example_subject}")
         # print(f"example_batch keys: {example_batch['batch'].keys()}")
         # for key in example_batch['batch'].keys():

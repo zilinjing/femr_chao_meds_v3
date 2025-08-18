@@ -1,5 +1,5 @@
 #!/bin/sh
-LOGFILE="$(dirname "$0")/run_motor_output2.log"
+LOGFILE="$(dirname "$0")/run_motor_output.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 
 # Default values
