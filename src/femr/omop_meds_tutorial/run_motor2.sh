@@ -224,10 +224,10 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
     fi
 
     # Print the command
-    # echo "Executing command: $GENERATE_CMD"
+    echo "Executing command: $GENERATE_CMD"
 
     # # Execute the command
-    # eval $GENERATE_CMD
+    eval $GENERATE_CMD
 
     # Check if the first command succeeded
     if [ $? -ne 0 ]; then

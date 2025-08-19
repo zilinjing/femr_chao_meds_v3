@@ -224,10 +224,10 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
     fi
 
     # Print the command
-    # echo "Executing command: $GENERATE_CMD"
+    echo "Executing command: $GENERATE_CMD"
 
     # Execute the command
-    # eval $GENERATE_CMD
+    eval $GENERATE_CMD
 
     # Check if the first command succeeded
     if [ $? -ne 0 ]; then
@@ -297,7 +297,7 @@ echo "All tasks processed."
 # bash run_motor.sh \
 #   --pretraining_data   /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_linear_interpolation \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-#   --num_proc           64 \
+#   --num_proc           100 \
 #   --model_path         /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_linear_interpolation/output/best_362214 \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
@@ -307,11 +307,11 @@ echo "All tasks processed."
 #   --linear_interpolation \
 #   /data/processed_datasets/processed_datasets/mimic/mimic_3.1/patient_outcome_tasks/
 
-# export CUDA_VISIBLE_DEVICES=0
+# export CUDA_VISIBLE_DEVICES=2
 # bash run_motor2.sh \
 #   --pretraining_data   /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_start_idx_corrected \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-#   --num_proc           64 \
+#   --num_proc           100 \
 #   --model_path         /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_start_idx_corrected/output/best_321968 \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
