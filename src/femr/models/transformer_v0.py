@@ -23,7 +23,7 @@ import femr.models.rmsnorm
 import femr.models.tasks
 import femr.models.tokenizer
 import femr.models.xformers
-import os
+
 
 @dataclass(frozen=False)
 class TotalFlops:
@@ -213,7 +213,6 @@ class MOTORTaskHead(nn.Module):
     def __init__(
             self,
             hidden_size: int,
-            linear_interpolation: bool,
             pretraining_task_info: List[Tuple[str, float]],
             time_bins: np.ndarray,
             final_layer_size: int,
@@ -237,7 +236,6 @@ class MOTORTaskHead(nn.Module):
 
       
         self.norm = femr.models.rmsnorm.RMSNorm(self.final_layer_size)
-        self.linear_interpolation = linear_interpolation
 
     def forward(self, features: torch.Tensor, batch: Mapping[str, torch.Tensor], return_logits=False):
         """
@@ -286,9 +284,8 @@ class MOTORTaskHead(nn.Module):
             
         assert torch.allclose(sum(time_dependent_logits[0,:,0]), torch.tensor(1.0), atol=1e-1), f" time_dependent_logits: {time_dependent_logits[0,:,0]}"
         #
-        # integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
-        cdf = torch.cumsum(time_dependent_logits, dim=1)
-        integrated_logits = torch.cat([torch.ones_like(time_dependent_logits[:, :1, :]), 1.0 - cdf[:, :-1, :]], dim=1)
+        integrated_logits = 1 - torch.cumsum(time_dependent_logits, dim=1)
+        # integrated_logits = torch.cat([torch.ones_like(time_dependent_logits[:, :1, :]), 1.0 - time_dependent_logits[:, :-1, :]], dim=1)
         # Verify input shapes match our expectations
         assert (
                 batch["is_event"].shape == time_dependent_logits.shape
@@ -298,7 +295,6 @@ class MOTORTaskHead(nn.Module):
         eps = 1e-8
         time_dependent_logits_stable = torch.clamp(time_dependent_logits, min=eps, max=1.0-eps)
         integrated_logits_stable = torch.clamp(integrated_logits, min=eps, max=1.0-eps)
-        
 
         # Validate that exactly one bin per prediction-task combination is True
         labels_sum = torch.sum(batch["is_event"], dim=1)  # Sum along time bins dimension [prediction_points, tasks]
@@ -319,15 +315,6 @@ class MOTORTaskHead(nn.Module):
         # is_censored has shape [prediction_points, tasks], need to expand to match marked_bins
         is_censored_expanded = batch["is_censored"].unsqueeze(1).expand(-1, self.num_time_bins, -1)  # [prediction_points, time_bins, tasks]
         
-        if self.linear_interpolation:
-            censor_time_ratio = batch["censor_time_ratio"]
-            integrated_logits_stable = torch.where(
-                is_censored_expanded,
-                integrated_logits_stable - (censor_time_ratio * time_dependent_logits_stable),
-                integrated_logits_stable  # No adjustment where not censored
-            )
-            integrated_logits_stable = torch.clamp(integrated_logits_stable, min=eps, max=1.0-eps)
-
         # Select the appropriate probability based on event vs censoring
         selected_probs = torch.where(
             is_censored_expanded,
@@ -381,19 +368,16 @@ def remove_first_dimension(data: Any) -> Any:
 class FEMRModel(transformers.PreTrainedModel):
     config_class = femr.models.config.FEMRModelConfig
 
-    def __init__(self, linear_interpolation: bool, config: femr.models.config.FEMRModelConfig, **kwargs):
+    def __init__(self, config: femr.models.config.FEMRModelConfig, **kwargs):
         # Allow the task config to be ovewritten
         if "task_config" in kwargs:
             config.task_config = kwargs["task_config"]
 
         super().__init__(config)
 
-        self.linear_interpolation = linear_interpolation
         self.transformer = FEMRTransformer(self.config.transformer_config)
         if self.config.task_config is not None:
             self.task_model = self.create_task_head()
-
-        
 
     def create_task_head(self) -> nn.Module:
         hidden_size = self.config.transformer_config.hidden_size
@@ -404,7 +388,7 @@ class FEMRModel(transformers.PreTrainedModel):
         elif task_type == "labeled_subjects":
             return LabeledSubjectTaskHead(hidden_size, **task_kwargs)
         elif task_type == "motor":
-            return MOTORTaskHead(hidden_size, self.linear_interpolation, **task_kwargs)
+            return MOTORTaskHead(hidden_size, **task_kwargs)
         else:
             raise RuntimeError("Could not determine head for task " + task_type)
 
@@ -477,7 +461,6 @@ def compute_features(
         observation_window: Optional[int] = None,
         min_subjects_per_batch: int = 1,
         total_flops: TotalFlops = None,
-        use_linear_interpolation: bool = False,
 ) -> Dict[str, np.ndarray]:
     """ "Compute features for a set of labels given a dataset and a model.
 
@@ -500,21 +483,7 @@ def compute_features(
     task = femr.models.tasks.LabeledSubjectTask(labels, observation_window)
 
     print(f"Loading model from {model_path}")
-    # model = femr.models.transformer.FEMRModel.from_pretrained(model_path, task_config=task.get_task_config())
-
-    # just use the config from the model path
-    config = femr.models.config.FEMRModelConfig.from_pretrained(model_path)
-    config.task_config = task.get_task_config()  # keep your current behavior
-
-    # Instantiate using your current constructor ORDER (linear_interpolation first)
-    print(f"use_linear_interpolation: {use_linear_interpolation}")
-    model = femr.models.transformer.FEMRModel(
-        use_linear_interpolation,  # or True, doesn’t matter for LabeledSubjectTask
-        config
-    )
-    state_dict = torch.load(os.path.join(model_path, "pytorch_model.bin"), map_location="cpu")
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
-
+    model = femr.models.transformer.FEMRModel.from_pretrained(model_path, task_config=task.get_task_config())
     tokenizer = femr.models.tokenizer.HierarchicalTokenizer.from_pretrained(model_path, ontology=ontology)
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task=task)
 
