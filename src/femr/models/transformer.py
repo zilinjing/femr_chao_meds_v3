@@ -477,6 +477,7 @@ def compute_features(
         observation_window: Optional[int] = None,
         min_subjects_per_batch: int = 1,
         total_flops: TotalFlops = None,
+        use_linear_interpolation: bool = False,
 ) -> Dict[str, np.ndarray]:
     """ "Compute features for a set of labels given a dataset and a model.
 
@@ -499,7 +500,19 @@ def compute_features(
     task = femr.models.tasks.LabeledSubjectTask(labels, observation_window)
 
     print(f"Loading model from {model_path}")
-    model = femr.models.transformer.FEMRModel.from_pretrained(model_path, task_config=task.get_task_config())
+    # model = femr.models.transformer.FEMRModel.from_pretrained(model_path, task_config=task.get_task_config())
+
+    # just use the config from the model path
+    config = femr.models.config.FEMRModelConfig.from_pretrained(model_path)
+    config.task_config = task.get_task_config()  # keep your current behavior
+
+    # Instantiate using your current constructor ORDER (linear_interpolation first)
+    print(f"use_linear_interpolation: {use_linear_interpolation}")
+    model = femr.models.transformer.FEMRModel(
+        use_linear_interpolation,  # or True, doesn’t matter for LabeledSubjectTask
+        config
+    )
+
     tokenizer = femr.models.tokenizer.HierarchicalTokenizer.from_pretrained(model_path, ontology=ontology)
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task=task)
 

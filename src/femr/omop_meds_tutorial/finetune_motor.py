@@ -30,6 +30,13 @@ def create_arg_parser():
         default=None,
         help="The observation window for extracting features",
     )
+
+    args.add_argument(
+        "--main_split_path",
+        dest="main_split_path", 
+        default=None, 
+        help="The path to the main split file",
+    )
     return args
 
 
@@ -78,7 +85,7 @@ def main():
             # labels = labels.sample(n=len(labels), random_state=42, replace=False)
             labeled_features = femr.featurizers.join_labels(features, labels)
 
-            main_split = femr.splits.SubjectSplit.load_from_csv(str(pretraining_data / 'main_split.csv'))
+            main_split = femr.splits.SubjectSplit.load_from_csv(args.main_split_path)
 
             train_mask = np.isin(labeled_features['subject_ids'], main_split.train_subject_ids)
             test_mask = np.isin(labeled_features['subject_ids'], main_split.test_subject_ids)

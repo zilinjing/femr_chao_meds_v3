@@ -1,3 +1,0 @@
-Starting MOTOR preparation script at Thu Aug 14 05:42:54 PM EDT 2025
-Output will be logged to: motor_execution_20250814_174254.txt
-=================================

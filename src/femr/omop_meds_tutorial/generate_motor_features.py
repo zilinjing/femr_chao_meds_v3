@@ -64,6 +64,18 @@ def create_arg_parser():
         default=1,
         help="The minimum number of subjects per batch",
     )
+    args.add_argument(
+        "--ontology_path",
+        dest="ontology_path",
+        default=None,
+        help="The path to the ontology to use",
+    )
+    args.add_argument(
+        "--linear_interpolation",
+        dest="use_linear_interpolation",
+        action="store_true",
+        help="Whether to use linear interpolation for the model",
+    )
     return args
 
 
@@ -84,7 +96,7 @@ def main():
     args = create_arg_parser().parse_args()
     with meds_reader.SubjectDatabase(args.meds_reader, num_threads=6) as database:
         pretraining_data = pathlib.Path(args.pretraining_data)
-        ontology_path = pretraining_data / 'ontology.pkl'
+        ontology_path = args.ontology_path
 
         features_path = pretraining_data / "features"
         features_path.mkdir(exist_ok=True, parents=True)
@@ -158,6 +170,7 @@ def main():
                 num_proc=args.num_proc,
                 observation_window=args.observation_window,
                 min_subjects_per_batch=args.min_subjects_per_batch,
+                use_linear_interpolation=args.use_linear_interpolation,
                 # total_flops=None
             )
             with open(feature_output_path, 'wb') as f:

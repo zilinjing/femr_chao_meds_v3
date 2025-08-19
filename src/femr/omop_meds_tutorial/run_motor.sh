@@ -8,6 +8,8 @@ NUM_PROC=10
 TOKENS_PER_BATCH=8192
 # Use empty value to indicate no observation window specified
 OBSERVATION_WINDOW=""
+# Default to false for linear interpolation
+USE_LINEAR_INTERPOLATION=false
 
 
 
@@ -27,6 +29,7 @@ show_help() {
     echo "  --num_proc               Number of processors to use (default: 10)"
     echo "  --tokens_per_batch       Tokens per batch (default: 231072)"
     echo "  --observation_window     Observation window in days (optional integer value)"
+    echo "  --linear_interpolation   Enable linear interpolation for the model"
     echo
     echo "Environment Variables:"
     echo "  PRETRAINING_DATA         Path to pretraining data (required if not set with --pretraining_data)"
@@ -36,6 +39,7 @@ show_help() {
     echo "  $SCRIPT_NAME /path/to/cohorts"
     echo "  $SCRIPT_NAME /path/to/cohorts --pretraining_data /path/to/pretraining --meds_reader /path/to/reader --num_proc 8"
     echo "  $SCRIPT_NAME /path/to/cohorts --observation_window 30"
+    echo "  $SCRIPT_NAME /path/to/cohorts --linear_interpolation"
 }
 
 # Parse command line options
@@ -78,8 +82,20 @@ while [ $# -gt 0 ]; do
             OBSERVATION_WINDOW="$2"
             shift 2
             ;;
+        --linear_interpolation)
+            USE_LINEAR_INTERPOLATION=true
+            shift
+            ;;
         --min_subjects_per_batch)
             MIN_SUBJECTS_PER_BATCH="$2"
+            shift 2
+            ;;
+        --ontology_path)
+            ONTOLOGY_PATH="$2"
+            shift 2
+            ;;
+        --main_split_path)
+            MAIN_SPLIT_PATH="$2"
             shift 2
             ;;
         -*)
@@ -137,7 +153,8 @@ echo "  PRETRAINING_DATA: $PRETRAINING_DATA"
 echo "  OMOP_MEDS_READER: $OMOP_MEDS_READER"
 echo "  NUM_PROC: $NUM_PROC"
 echo "  TOKENS_PER_BATCH: $TOKENS_PER_BATCH"
-    echo "  OBSERVATION_WINDOW: $([ -z "$OBSERVATION_WINDOW" ] && echo "Not specified" || echo "$OBSERVATION_WINDOW")"
+echo "  OBSERVATION_WINDOW: $([ -z "$OBSERVATION_WINDOW" ] && echo "Not specified" || echo "$OBSERVATION_WINDOW")"
+echo "  USE_LINEAR_INTERPOLATION: $USE_LINEAR_INTERPOLATION"
 echo
 
 # Iterate over all task directories in the cohort folder
@@ -193,7 +210,13 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
       --tokens_per_batch \"$TOKENS_PER_BATCH\" \
       --device \"$DEVICE\" \
       --min_subjects_per_batch \"$MIN_SUBJECTS_PER_BATCH\" \
-      --cohort_dir \"$TASK_DIR\""
+      --cohort_dir \"$TASK_DIR\" \
+      --ontology_path \"$ONTOLOGY_PATH\""
+
+    # Add linear_interpolation parameter if specified
+    if [ "$USE_LINEAR_INTERPOLATION" = true ]; then
+        GENERATE_CMD="$GENERATE_CMD --linear_interpolation"
+    fi
 
     # Add observation_window parameter if specified
     if [ -n "$OBSERVATION_WINDOW" ]; then
@@ -201,10 +224,10 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
     fi
 
     # Print the command
-    echo "Executing command: $GENERATE_CMD"
+    # echo "Executing command: $GENERATE_CMD"
 
     # Execute the command
-    eval $GENERATE_CMD
+    # eval $GENERATE_CMD
 
     # Check if the first command succeeded
     if [ $? -ne 0 ]; then
@@ -219,7 +242,8 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
     FINETUNE_CMD="python -u -m femr.omop_meds_tutorial.finetune_motor \
       --pretraining_data \"$PRETRAINING_DATA\" \
       --meds_reader \"$OMOP_MEDS_READER\" \
-      --cohort_label \"$TASK_NAME\""
+      --cohort_label \"$TASK_NAME\" \
+      --main_split_path \"$MAIN_SPLIT_PATH\""
 
     # Add observation_window parameter if specified
     if [ -n "$OBSERVATION_WINDOW" ]; then
@@ -269,16 +293,31 @@ done
 
 echo "All tasks processed."
 
-# export CUDA_VISIBLE_DEVICES=3
+# export CUDA_VISIBLE_DEVICES=1
 # bash run_motor.sh \
-#   --pretraining_data   /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8 \
+#   --pretraining_data   /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_linear_interpolation \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
 #   --num_proc           64 \
-#   --model_path         /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8/output/best \
+#   --model_path         /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_linear_interpolation/output/best_362214 \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --min_subjects_per_batch 8 \
+#   --ontology_path       /data/processed_datasets/processed_datasets/zj2398/femr/mimic/ontology.pkl \
+#   --main_split_path     /data/processed_datasets/processed_datasets/zj2398/femr/mimic/main_split.csv \
+#   --linear_interpolation \
 #   /data/processed_datasets/processed_datasets/mimic/mimic_3.1/patient_outcome_tasks/
 
+# export CUDA_VISIBLE_DEVICES=0
+# bash run_motor2.sh \
+#   --pretraining_data   /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_start_idx_corrected \
+#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+#   --num_proc           64 \
+#   --model_path         /data/processed_datasets/processed_datasets/zj2398/femr/mimic/motor_mimic_bin_8_start_idx_corrected/output/best_321968 \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --min_subjects_per_batch 8 \
+#   --ontology_path       /data/processed_datasets/processed_datasets/zj2398/femr/mimic/ontology.pkl \
+#   --main_split_path     /data/processed_datasets/processed_datasets/zj2398/femr/mimic/main_split.csv \
+#   /data/processed_datasets/processed_datasets/mimic/mimic_3.1/patient_outcome_tasks/
 
 
