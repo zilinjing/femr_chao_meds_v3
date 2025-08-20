@@ -23,7 +23,7 @@ import femr.models.rmsnorm
 import femr.models.tasks
 import femr.models.tokenizer
 import femr.models.xformers
-import os
+
 
 @dataclass(frozen=False)
 class TotalFlops:
@@ -381,6 +381,51 @@ def remove_first_dimension(data: Any) -> Any:
 class FEMRModel(transformers.PreTrainedModel):
     config_class = femr.models.config.FEMRModelConfig
 
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, use_linear_interpolation=False, **kwargs):
+        """
+        Custom from_pretrained method to handle linear_interpolation parameter.
+        
+        Args:
+            pretrained_model_name_or_path: Path to the pretrained model
+            use_linear_interpolation: Whether to use linear interpolation
+            **kwargs: Additional arguments passed to the parent from_pretrained method
+        """
+        # Extract task_config from kwargs if provided
+        task_config = kwargs.pop('task_config', None)
+        
+        # Load config using parent class method
+        config = cls.config_class.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        
+        # Override task_config if provided
+        if task_config is not None:
+            config.task_config = task_config
+            
+        # Create model instance with linear_interpolation parameter
+        model = cls(linear_interpolation=use_linear_interpolation, config=config)
+        
+        # Load the state dict
+        import os
+        model_file = os.path.join(pretrained_model_name_or_path, "model.safetensors")
+        if os.path.exists(model_file):
+            from safetensors import safe_open
+            state_dict = {}
+            with safe_open(model_file, framework="pt", device="cpu") as f:
+                for key in f.keys():
+                    state_dict[key] = f.get_tensor(key)
+            model.load_state_dict(state_dict)
+        else:
+            # Fallback to pytorch_model.bin if safetensors not available
+            model_file = os.path.join(pretrained_model_name_or_path, "pytorch_model.bin")
+            if os.path.exists(model_file):
+                import torch
+                state_dict = torch.load(model_file, map_location="cpu")
+                model.load_state_dict(state_dict)
+            else:
+                raise FileNotFoundError(f"No model file found in {pretrained_model_name_or_path}")
+        
+        return model
+
     def __init__(self, linear_interpolation: bool, config: femr.models.config.FEMRModelConfig, **kwargs):
         # Allow the task config to be ovewritten
         if "task_config" in kwargs:
@@ -500,20 +545,14 @@ def compute_features(
     task = femr.models.tasks.LabeledSubjectTask(labels, observation_window)
 
     print(f"Loading model from {model_path}")
-    # model = femr.models.transformer.FEMRModel.from_pretrained(model_path, task_config=task.get_task_config())
-
-    # just use the config from the model path
-    config = femr.models.config.FEMRModelConfig.from_pretrained(model_path)
-    config.task_config = task.get_task_config()  # keep your current behavior
-
-    # Instantiate using your current constructor ORDER (linear_interpolation first)
     print(f"use_linear_interpolation: {use_linear_interpolation}")
-    model = femr.models.transformer.FEMRModel(
-        use_linear_interpolation,  # or True, doesn’t matter for LabeledSubjectTask
-        config
+    
+    # Use the new from_pretrained method that supports linear_interpolation
+    model = femr.models.transformer.FEMRModel.from_pretrained(
+        model_path, 
+        task_config=task.get_task_config(),
+        use_linear_interpolation=use_linear_interpolation
     )
-    state_dict = torch.load(os.path.join(model_path, "pytorch_model.bin"), map_location="cpu")
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
 
     tokenizer = femr.models.tokenizer.HierarchicalTokenizer.from_pretrained(model_path, ontology=ontology)
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task=task)
