@@ -16,7 +16,8 @@ set -euo pipefail
 python prepare.py \
   --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/mtpp \
   --ontology_path  /data2/processed_datasets/zj2398/femr/cumc/mtpp/ontology.pkl \
-  --time_bins 8 \
+  --time_bins 6 \
+  --value_bins 8 \
   --model mamba \
   --loss_type mtpp \
   --num_threads 32 \
