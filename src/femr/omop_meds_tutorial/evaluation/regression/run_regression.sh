@@ -232,6 +232,8 @@ echo "All selected tasks processed."
 #   --regression 
 
 
+
+
 # bash run_regression.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
 #   --num_proc           24 \
@@ -270,19 +272,20 @@ echo "All selected tasks processed."
 
 ##kuvira
 # mimic
+
 # bash run_regression.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-#   --num_proc           64 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/deephit_tpp/output_transformer/best_221573 \
-#   --model_name         tpp \
+#   --num_proc           32 \
+#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10/transformer/best-147565 \
+#   --model_name         transformer_mtpp_T_16_V_10 \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path      /data2/processed_datasets/zj2398/femr/mimic/deephit_tpp/ontology.pkl \
-#   --main_split_path    /data2/processed_datasets/zj2398/femr/mimic/deephit_tpp/main_split.csv \
-#   --cohort_dir   /data2/processed_datasets/mimic/regression/icu_stay_4h/ \
+#   --ontology_path       /data2/processed_datasets/zj2398/femr/mimic/ntp/ontology.pkl \
+#   --main_split_path     /data2/processed_datasets/zj2398/femr/mimic/ntp/main_split.csv \
+#   --cohort_dir   /data2/processed_datasets/mimic/regression/icu_stay_4h_100k/ \
 #   --output_dir   /data2/processed_datasets/zj2398/femr/mimic/results/regression \
-#   --tasks "pao2,platelets,bilirubin,creatinine" \
+#   --tasks "pao2,platelets,creatinine" \
 #   --regression 
 
 # kuvira cumc

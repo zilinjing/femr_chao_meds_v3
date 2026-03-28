@@ -16,18 +16,30 @@ set -euo pipefail
 TIME_BINS=$1
 VALUE_BINS=$2
 PRETRAINING_DATA=$3 
+ONTOLOGY_PATH=$4
 
 # ---- job 1: data prep (background) ----
+# python prepare.py \
+#   --pretraining_data $PRETRAINING_DATA \
+#   --ontology_path  $ONTOLOGY_PATH \
+#   --time_bins $TIME_BINS \
+#   --value_bins $VALUE_BINS \
+#   --loss_type mtpp \
+#   --num_final_tasks 6100 \
+#   --num_threads 32 \
+#   --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets \
+#   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
+
 python prepare.py \
   --pretraining_data $PRETRAINING_DATA \
-  --ontology_path  /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
+  --ontology_path  $ONTOLOGY_PATH \
   --time_bins $TIME_BINS \
   --value_bins $VALUE_BINS \
   --loss_type mtpp \
   --num_final_tasks 6100 \
   --num_threads 32 \
-  --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets \
-  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
+  --hf_cache_path /data2/huggingface/zj2398 \
+  --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader
 
 
 # PREP_PID=$!
@@ -35,7 +47,7 @@ python prepare.py \
 
 # ---- job 2: training (background) ----
 # multi-gpu pretraining
-# export CUDA_VISIBLE_DEVICES=4,5,6,7
+# export CUDA_VISIBLE_DEVICES=1,2,3
 
 # accelerate launch \
 #   --num_processes 4 \
@@ -49,14 +61,15 @@ python prepare.py \
 #   --loss_type mtpp_shared
 
 accelerate launch \
-  --num_processes 5 \
+  --num_processes 3 \
   pretrain.py \
   --pretraining_data $PRETRAINING_DATA \
-  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+  --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \
-  --output_dir /user/zj2398/cache/mtpp_8k_T_${TIME_BINS}_V_${VALUE_BINS}/transformer \
+  --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10/transformer \
   --model transformer \
   --hf_run_name mimic_transformer_mtpp_6100_T_${TIME_BINS}_V_${VALUE_BINS} \
   --loss_type mtpp_shared 
 
-#bash run_mimic_new.sh 16 10 /user/zj2398/cache/mtpp_8k_T_16_V_5
+
+#bash run_mimic_new.sh 16 10 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10/ontology.pkl

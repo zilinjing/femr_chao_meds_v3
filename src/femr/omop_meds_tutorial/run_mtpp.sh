@@ -13,6 +13,7 @@ set -euo pipefail
 # echo "  train   -> $TRAIN_LOG"
 # echo
 
+
 python prepare.py \
   --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/mtpp \
   --ontology_path  /data2/processed_datasets/zj2398/femr/cumc/mtpp/ontology.pkl \
