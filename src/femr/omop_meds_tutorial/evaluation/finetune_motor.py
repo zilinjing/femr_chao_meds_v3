@@ -216,11 +216,6 @@ def tte_evaluation(train_set_init, test_set_init,truncation,tte_cohort):
         'lr': [0.001, 0.0001],
         'batch': [1024, 2048]
     })
-    # grid = ParameterGrid({
-    #     'dropout': [0.1],
-    #     'lr': [0.001],
-    #     'batch': [1024]
-    # })
 
     # Hyperparameter selection
     best_nll = np.inf
@@ -396,31 +391,6 @@ def main():
         train_features_list = [feature for feature in train_data["features"]]
         test_features_list = [feature for feature in test_data["features"]]
 
-        # if args.cohort_type == "phenotype":
-        #     print("phenotype prediction")
-        #     train_set = pd.DataFrame({
-        #         "subject_id" : train_data["subject_ids"],
-        #         "prediction_time" : train_data["prediction_times"],
-        #         "tte_label" : train_data["tte_label"],
-        #         "time_to_event": train_data["time_to_event"],
-        #         "boolean_value": train_data["boolean_values"],
-        #         "features" : train_features_list
-        #     }).sample(
-        #         frac=1.0,
-        #         random_state=42
-        #     )
-        #     train_set.to_parquet(features_label_data / "train.parquet", index=False)
-        #     test_set = pd.DataFrame({
-        #         "subject_id" : test_data["subject_ids"],
-        #         "prediction_time" : test_data["prediction_times"],
-        #         "tte_label" : test_data["tte_label"],
-        #         "time_to_event": test_data["time_to_event"],
-        #         "boolean_value": test_data["boolean_values"],
-        #         "features" : test_features_list
-        #     })
-        #     test_set.to_parquet(features_label_data / "test.parquet", index=False)
-
-        # else:
         train_set = pd.DataFrame({
             "subject_id" : train_data["subject_ids"],
             "prediction_time" : train_data["prediction_times"],

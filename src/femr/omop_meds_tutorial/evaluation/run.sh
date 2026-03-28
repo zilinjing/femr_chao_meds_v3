@@ -318,7 +318,7 @@ for TASK_DIR in "$CLASS_COHORT"*/; do
         continue
     fi
 
-    Determine the MOTOR prediction folder path based on observation window
+    # Determine the MOTOR prediction folder path based on observation window
     if [ -n "$OBSERVATION_WINDOW" ]; then
         MOTOR_PREDICTION_FOLDER="$OUTPUT_DIR/"results"/$TASK_NAME/$MODEL_NAME_$OBSERVATION_WINDOW/test_predictions"
         MOTOR_OUTPUT_DIR="$OUTPUT_DIR/"results"/$TASK_NAME/$MODEL_NAME_$OBSERVATION_WINDOW/"
@@ -330,14 +330,26 @@ for TASK_DIR in "$CLASS_COHORT"*/; do
     # Build the evaluation command
     EVAL_CMD="meds-evaluation-cli predictions_path=\"$MOTOR_PREDICTION_FOLDER\" \
       output_dir=\"$MOTOR_OUTPUT_DIR\""
+    # Build the evaluation command
+    EVAL_CMD="meds-evaluation-cli predictions_path=\"$MOTOR_PREDICTION_FOLDER\" \
+      output_dir=\"$MOTOR_OUTPUT_DIR\""
 
+    # Run the third command to compute the metrics
+    echo "Running meds-evaluation for $TASK_NAME..."
+    echo "Executing command: $EVAL_CMD"
     # Run the third command to compute the metrics
     echo "Running meds-evaluation for $TASK_NAME..."
     echo "Executing command: $EVAL_CMD"
 
     # Execute the command
     eval $EVAL_CMD
+    # Execute the command
+    eval $EVAL_CMD
 
+    # Check if the third command succeeded
+    if [ $? -ne 0 ]; then
+        echo "Error: Running meds-evaluation failed for task $TASK_NAME"
+    fi
     # Check if the third command succeeded
     if [ $? -ne 0 ]; then
         echo "Error: Running meds-evaluation failed for task $TASK_NAME"
@@ -351,23 +363,25 @@ echo "All tasks processed."
 
 
 # phenotype
-# export CUDA_VISIBLE_DEVICES=3
+# export CUDA_VISIBLE_DEVICES=4
+
+# /shared/share_mala/zj2398/models/mtpp_8k/mtpp_8k_T_8_V_10/transformer/best-100620
 
 #phenotype
 # bash run.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
 #   --num_proc           24 \
-#   --model_path         /shared/share_mala/zj2398/models/tpp_8k/mamba_2e-4_5.0/best_75368 \
-#   --model_name         mamba_tpp_2e-4 \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer/best_112686 \
+#   --model_name         transformer_mtpp_T_16_V_5 \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --use_ntp            no \
 #   --cohort_type        phenotype \
 #   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /user/zj2398/cache/mtpp_8k/ontology.pkl \
-#   --main_split_path     /user/zj2398/cache/mtpp_8k/main_split.csv \
-#   --output_dir   /shared/share_mala/zj2398/mimic/task/phenotype_task/  \
+#   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
+#   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv \
+#   --output_dir   /shared/share_mala/zj2398/mimic/task/phenotype_task  \
 #   --truncation   330 \
 #   --observation_window 730 \
 #   --classification_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/binary/ \
@@ -377,16 +391,16 @@ echo "All tasks processed."
 # bash run.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
 #   --num_proc           24 \
-#   --model_path         /shared/share_mala/zj2398/models/mtpp_8k/mtpp_all_shared_6100_bin_5/transformer/best_159744 \
-#   --model_name         transformer_mtpp \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer/best_112686 \
+#   --model_name         transformer_mtpp_T_16_V_5 \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --use_ntp            no \
 #   --cohort_type        outcome \
 #   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /user/zj2398/cache/mtpp_8k/ontology.pkl \
-#   --main_split_path     /user/zj2398/cache/mtpp_8k/main_split.csv \
+#   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
+#   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv  \
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
 #   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ 
 

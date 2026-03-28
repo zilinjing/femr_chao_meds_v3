@@ -11,8 +11,8 @@ python baseline.py \
     --cohort_dir /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
     --meds_path /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
     --dataset mimic \
-    --split_path /user/zj2398/cache/mtpp_8k/main_split.csv \
-    --result_dir /shared/share_mala/zj2398/mimic/task/regression/summary_dir
+    --split_path /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv  \
+    --result_dir /shared/share_mala/zj2398/mimic/task/regression/baseline_results/result
 
 python baseline.py \
     --cohort_dir /data2/processed_datasets/zj2398/cumc_data/regression_100k/ \
@@ -45,18 +45,28 @@ from femr.omop_meds_tutorial.evaluation.eval_utils import (
 N_BOOT = 100
 MODEL_COL = "Most Recent Imputation"
 
-# MIMIC_CODE_DICT = {
-#     "platelets": "LAB//51265//K/uL",
-#     "creatinine": "LAB//50912//mg/dL",
-#     "bilirubin": "LAB//50885//mg/dL",
-#     "pao2":"LAB//50821//mm Hg",
+MIMIC_CODE_DICT = {
+    "platelets": "LAB//51265//K/uL",
+    "creatinine": "LAB//50912//mg/dL",
+    "bilirubin": "LAB//50885//mg/dL",
+    "pao2":"LAB//50821//mm Hg",
+    "glucose":"LAB//50931//mg/dL",
+    "lactate":"LAB//50813//mmol/L"
+}
+
+# code_dict = {
+#    "LAB//51265//K/uL": "Platelets",
+#    "LAB//50912//mg/dL": "Creatinine",
+#    "LAB//50821//mm Hg": "Spo2",
+#    "LAB//50931//mg/dL":"Glucose",
+#    "LAB//50813//mmol/L":"Lactate"
 # }
 
-MIMIC_CODE_DICT = {
-    "MAP": "LAB//220052//mmHg",
-    "lactate":"LAB//50813//mmol/L",
-    "urine":"SUBJECT_FLUID_OUTPUT//226559//ml",
-}
+# MIMIC_CODE_DICT = {
+#     "MAP": "LAB//220052//mmHg",
+#     "lactate":"LAB//50813//mmol/L",
+#     "urine":"SUBJECT_FLUID_OUTPUT//226559//ml",
+# }
 
 
 CUMC_CODE_DICT = {
@@ -152,7 +162,6 @@ def process_subjects(
             last_value = None
             for event_time, event_value in history:
                 if event_time <= pred_time:
-                if event_time <= pred_time:
                     last_value = event_value
                 else:
                     break  # Events are time-sorted
@@ -210,36 +219,40 @@ def run_baseline(
     result_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Initializing MEDS database: {meds_path}")
-    db = meds_reader.SubjectDatabase(meds_path, num_threads=num_threads)
-    
-    for task in tasks:
-        target_code = CODE_DICT[task]
-        print(f"\n{'='*60}\nTask: {task} | Code: {target_code}\n{'='*60}")
-        
-        # Load data
-        train_df, test_df = load_data(cohort_dir, split_path, task)
-        print(f"Train: {len(train_df):,} | Test: {len(test_df):,}")
-        
-        # Compute fallback mean
-        code_mean = compute_code_mean(train_df, target_code)
-        print(f"Code mean (fallback): {code_mean:.4f}")
-        
-        # Build test lookup
-        test_lookup = build_test_lookup(test_df)
-        print(f"Unique test subjects: {len(test_lookup):,}")
-        
-        # Run parallel inference
-        worker = functools.partial(
-            process_subjects,
-            target_code=target_code,
-            test_lookup=test_lookup,
-            code_mean=code_mean,
-        )
-        predictions = functools.reduce(lambda acc, x: {**acc, **x}, db.map(worker), {})
-        print(f"Generated {len(predictions):,} predictions")
-        
-        # Evaluate
-        evaluate_and_save(test_df, predictions, task, result_dir)
+    # db = meds_reader.SubjectDatabase(meds_path, num_threads=num_threads)
+
+    with meds_reader.SubjectDatabase(meds_path, num_threads=num_threads) as db:
+        # for task in tasks:
+        #     ...
+
+        for task in tasks:
+            target_code = CODE_DICT[task]
+            print(f"\n{'='*60}\nTask: {task} | Code: {target_code}\n{'='*60}")
+            
+            # Load data
+            train_df, test_df = load_data(cohort_dir, split_path, task)
+            print(f"Train: {len(train_df):,} | Test: {len(test_df):,}")
+            
+            # Compute fallback mean
+            code_mean = compute_code_mean(train_df, target_code)
+            print(f"Code mean (fallback): {code_mean:.4f}")
+            
+            # Build test lookup
+            test_lookup = build_test_lookup(test_df)
+            print(f"Unique test subjects: {len(test_lookup):,}")
+            
+            # Run parallel inference
+            worker = functools.partial(
+                process_subjects,
+                target_code=target_code,
+                test_lookup=test_lookup,
+                code_mean=code_mean,
+            )
+            predictions = functools.reduce(lambda acc, x: {**acc, **x}, db.map(worker), {})
+            print(f"Generated {len(predictions):,} predictions")
+            
+            # Evaluate
+            evaluate_and_save(test_df, predictions, task, result_dir)
 
 
 def main():

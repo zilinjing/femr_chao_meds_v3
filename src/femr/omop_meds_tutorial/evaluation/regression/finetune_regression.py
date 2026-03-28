@@ -86,7 +86,7 @@ def main():
 
     # Avoid variable shadowing: keep label_names for task iteration
     # label_names = LABEL_NAMES
-    summary_dir =  Path(args.output_root) / "summary_tables"
+    summary_dir =  Path(args.output_root) / "summary_dir"
     output_root = Path(args.output_root)/args.model_name
     if args.cohort_label is not None:
         label_path = output_root / "labels" / (args.cohort_label + '.parquet')

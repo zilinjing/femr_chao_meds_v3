@@ -211,25 +211,63 @@ done
 
 echo "All selected tasks processed."
 
-#export CUDA_VISIBLE_DEVICES=1
+#export CUDA_VISIBLE_DEVICES=3
 # bilirubin,creatinine,pao2,platelets
 
 # bash run_regression.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-#   --num_proc           24 \
-#   --model_path         /shared/share_mala/zj2398/models/mtpp_8k/mtpp_all_shared_6100_bin_5/transformer/best_159744 \
-#   --model_name         transformer_mtpp \
+#   --num_proc           32 \
+#   --model_path         /shared/share_mala/zj2398/models/motor_8k/output/best_100620 \
+#   --model_name         motor \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path      /user/zj2398/cache/mtpp_8k/ontology.pkl \
-#   --main_split_path    /user/zj2398/cache/mtpp_8k/main_split.csv \
-#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h/ \
+#   --ontology_path      /user/zj2398/cache/mtpp_8k_T_8_V_5/ontology.pkl \
+#   --main_split_path    /user/zj2398/cache/mtpp_8k_T_8_V_5/main_split.csv \
+#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
 #   --use_ntp no \
 #   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
-#   --tasks "pao2,platelets,bilirubin,creatinine" \
+#   --tasks "glucose" \
 #   --regression 
+
+
+
+
+# bash run_regression.sh \
+#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+#   --num_proc           24 \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_10/transformer/best-100620 \
+#   --model_name         transformer_mtpp_T_8_V_10 \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --min_subjects_per_batch 8 \
+#   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
+#   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv \
+#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
+#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
+#   --use_ntp no \
+#   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
+#   --tasks "pao2,platelets,creatinine" \
+#   --regression 
+
+# bash run_regression.sh \
+#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+#   --num_proc           24 \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer/best_112686 \
+#   --model_name         transformer_mtpp_T_16_V_5 \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --min_subjects_per_batch 8 \
+#   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
+#   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv \
+#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
+#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
+#   --use_ntp no \
+#   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
+#   --tasks "pao2,platelets,creatinine" \
+#   --regression 
+
 
 
 

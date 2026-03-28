@@ -366,6 +366,22 @@ accelerate launch \
 mimic 
 gsb
 
+export CUDA_VISIBLE_DEVICES=3,4,5,6,7
+
+accelerate launch \
+  --num_processes 5 \
+  pretrain.py \
+  --pretraining_data /user/zj2398/cache/mtpp_8k_T_16_V_5 \
+  --checkpoint_dir /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer/checkpoint-64392 \
+  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer \
+  --model transformer \
+  --hf_run_name mimic_transformer_mtpp_6100_T_16_V_5_continue \
+  --loss_type mtpp_shared 
+
+#bash run_mimic_new.sh 16 10 /user/zj2398/cache/mtpp_8k_T_16_V_5
+
 CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch \
   --num_processes 4 \
   --gpu_ids "4,5,6,7" \
