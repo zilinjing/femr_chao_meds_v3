@@ -3,6 +3,8 @@ import transformers
 import pathlib
 import torch
 import sys
+import time
+import json
 import femr.models.architecture.transformer
 import femr.models.architecture.embedding
 import pickle
@@ -14,6 +16,7 @@ from omegaconf import OmegaConf
 from femr.omop_meds_tutorial.evaluation.generate_labels import create_omop_meds_tutorial_arg_parser
 import torch.nn as nn
 from transformers import TrainerCallback
+from torch.profiler import ProfilerActivity, profile
 import wandb
 import datasets
 datasets.disable_caching()
@@ -148,6 +151,58 @@ class WandbTrainLossCallback(transformers.TrainerCallback):
         log_data["epoch"] = state.epoch
         
         wandb.log(log_data)
+
+
+class ProfilingTrainer(transformers.Trainer):
+    """Trainer that profiles FLOPs (epoch 1) and clean wall time (epoch 2).
+
+    Epoch 1: profiler ON  -> accurate FLOPs, inflated time (profiler overhead).
+    Epoch 2+: profiler OFF -> accurate wall time, no overhead.
+
+    Set n_epochs=2 to get both accurate FLOPs and accurate per-epoch time.
+    Then multiply each by your real number of epochs.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.profiled_step_flops = []    # FLOPs per step (epoch 1 only)
+        self.clean_step_times = []       # wall time per step (epoch 2 only)
+
+    def training_step(self, *args, **kwargs):
+        use_cuda = self.args.device.type == 'cuda'
+
+        if self.state.epoch < 1.0:
+            # Epoch 1: profile for FLOPs (time is inflated by profiler)
+            if use_cuda:
+                activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+            else:
+                activities = [ProfilerActivity.CPU]
+
+            with profile(activities=activities, with_flops=True) as prof:
+                loss = super().training_step(*args, **kwargs)
+
+            step_flops = sum(
+                evt.flops for evt in prof.key_averages()
+                if evt.flops is not None and evt.flops > 0
+            )
+            self.profiled_step_flops.append(step_flops)
+            return loss
+
+        elif self.state.epoch < 2.0:
+            # Epoch 2: no profiler, measure clean wall time
+            if use_cuda:
+                torch.cuda.synchronize()
+            t0 = time.perf_counter()
+
+            loss = super().training_step(*args, **kwargs)
+
+            if use_cuda:
+                torch.cuda.synchronize()
+            t1 = time.perf_counter()
+            self.clean_step_times.append(t1 - t0)
+            return loss
+
+        return super().training_step(*args, **kwargs)
 
 
 def main():
@@ -293,7 +348,7 @@ def main():
     print(f"CONFIRMATION: The actual per_device_train_batch_size is {trainer_config.per_device_train_batch_size}")
 
 
-    trainer = transformers.Trainer(
+    trainer = ProfilingTrainer(
         model=model,
         data_collator=processor.collate,
         train_dataset=train_batches,
@@ -306,6 +361,25 @@ def main():
     trainer.log_metrics("train", train_result.metrics)
     trainer.save_metrics("train", train_result.metrics)
     trainer.save_state()
+
+    # Save FLOPs and time metrics
+    # Epoch 1 gives accurate FLOPs, epoch 2 gives accurate time.
+    # Multiply each by your real num_epochs for total training cost.
+    per_epoch_flops = sum(trainer.profiled_step_flops)
+    per_epoch_time = sum(trainer.clean_step_times)
+    training_metrics = {
+        "per_epoch_flops": per_epoch_flops,       # exact FLOPs for 1 epoch (from epoch 1 profiling)
+        "per_epoch_time": per_epoch_time,          # clean wall time for 1 epoch in seconds (from epoch 2, no profiler)
+        "steps_per_epoch": len(trainer.profiled_step_flops),
+        "n_epochs_run": args.n_epochs,             # how many epochs this run used (should be 2 for profiling)
+    }
+    metrics_path = pathlib.Path(output_dir) / "training_flops_time.json"
+    with open(metrics_path, "w") as f:
+        json.dump(training_metrics, f, indent=2)
+    print(f"Training FLOPs/time metrics saved to {metrics_path}")
+    print(f"  per_epoch_flops: {per_epoch_flops:.4e} ({per_epoch_flops / 1e12:.4f} TFLOPs)")
+    print(f"  per_epoch_time:  {per_epoch_time:.2f}s")
+    print(f"  To estimate full training: multiply each by your real num_epochs")
 
 
 if __name__ == "__main__":

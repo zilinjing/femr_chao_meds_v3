@@ -10,6 +10,8 @@ import femr.models.processor
 import pandas as pd
 import polars as pl
 import logging
+import time
+import json
 from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
 from femr.models.tasks.ntp import CLMBRTask as CLMBRTask
 from femr.models.tasks.tpp import TPP_Task as TPP_Task
@@ -152,13 +154,18 @@ def main(args):
         #     print(f"example_batch[{key}], shape: {example_batch['batch'][key].shape}, values: {example_batch['batch'][key]}")
 
         # Generate only one style of batches based on model type
+        prepare_timing = {}
+
         if args.model in ("transformer", None):
             train_batches_path = pretraining_data_path / 'train_batches'
             if not train_batches_path.exists():
                 print(f"Convert batches (transformer-style), saving to {train_batches_path}")
+                t0 = time.perf_counter()
                 train_batches = processor.convert_dataset(
                     train_database, tokens_per_batch=args.tokens_per_batch, num_proc=num_threads
                 )
+                prepare_timing["train_batches_time"] = time.perf_counter() - t0
+                print(f"Train batches conversion took {prepare_timing['train_batches_time']:.2f}s")
                 print("Convert batches to pytorch")
                 train_batches.set_format("pt")
                 train_batches.save_to_disk(train_batches_path)
@@ -166,9 +173,12 @@ def main(args):
             val_batches_path = pretraining_data_path / 'val_batches'
             if not val_batches_path.exists():
                 print(f"Convert val batches (transformer-style), saving to {val_batches_path}")
+                t0 = time.perf_counter()
                 val_batches = processor.convert_dataset(
                     val_database, tokens_per_batch=args.tokens_per_batch, num_proc=num_threads
                 )
+                prepare_timing["val_batches_time"] = time.perf_counter() - t0
+                print(f"Val batches conversion took {prepare_timing['val_batches_time']:.2f}s")
                 val_batches.set_format("pt")
                 val_batches.save_to_disk(val_batches_path)
         elif args.model == "mamba":
@@ -176,28 +186,40 @@ def main(args):
             train_batches_mamba_path = pretraining_data_path / 'train_batches_mamba'
             if not train_batches_mamba_path.exists():
                 print(f"Convert batches (mamba-optimized), saving to {train_batches_mamba_path}")
+                t0 = time.perf_counter()
                 train_batches_mamba = processor.convert_dataset_mamba(
                     train_database,
                     tokens_per_batch=args.tokens_per_batch,
                     per_sample_max_tokens=getattr(args, 'mamba_per_sample_max_tokens', 8192),
                     num_proc=num_threads,
                 )
+                prepare_timing["train_batches_time"] = time.perf_counter() - t0
+                print(f"Train batches (mamba) conversion took {prepare_timing['train_batches_time']:.2f}s")
                 train_batches_mamba.set_format("pt")
                 train_batches_mamba.save_to_disk(train_batches_mamba_path)
 
             val_batches_mamba_path = pretraining_data_path / 'val_batches_mamba'
             if not val_batches_mamba_path.exists():
                 print(f"Convert val batches (mamba-optimized), saving to {val_batches_mamba_path}")
+                t0 = time.perf_counter()
                 val_batches_mamba = processor.convert_dataset_mamba(
                     val_database,
                     tokens_per_batch=args.tokens_per_batch,
                     per_sample_max_tokens=getattr(args, 'mamba_per_sample_max_tokens', 8192),
                     num_proc=num_threads,
                 )
+                prepare_timing["val_batches_time"] = time.perf_counter() - t0
+                print(f"Val batches (mamba) conversion took {prepare_timing['val_batches_time']:.2f}s")
                 val_batches_mamba.set_format("pt")
                 val_batches_mamba.save_to_disk(val_batches_mamba_path)
         else:
             raise ValueError(f"Unknown model type: {args.model}")
+
+        if prepare_timing:
+            timing_path = pretraining_data_path / 'prepare_timing.json'
+            with open(timing_path, 'w') as f:
+                json.dump(prepare_timing, f)
+            print(f"Prepare timing saved to {timing_path}")
 
 
 def create_omop_meds_tutorial_argparser():
