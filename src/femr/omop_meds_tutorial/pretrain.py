@@ -120,6 +120,13 @@ def create_arg_parser():
         type=bool,
         default=False
     )
+    arg_parser.add_argument(
+        "--max_steps",
+        dest="max_steps",
+        type=int,
+        default=-1,
+        help="Stop after this many steps. Use for profiling-only runs (e.g., 1100 for 500+500). -1 = use n_epochs."
+    )
     return arg_parser
 
 def count_parameters(model: nn.Module) -> int:
@@ -154,55 +161,89 @@ class WandbTrainLossCallback(transformers.TrainerCallback):
 
 
 class ProfilingTrainer(transformers.Trainer):
-    """Trainer that profiles FLOPs (epoch 1) and clean wall time (epoch 2).
+    """Trainer that estimates per-epoch FLOPs and wall time from a small sample.
 
-    Epoch 1: profiler ON  -> accurate FLOPs, inflated time (profiler overhead).
-    Epoch 2+: profiler OFF -> accurate wall time, no overhead.
+    Phase 1 (first N_PROFILE steps): profiler ON  -> FLOPs per token.
+    Phase 2 (next N_TIME steps):     profiler OFF -> clean wall time per token.
+    Phase 3 (all remaining steps):   no overhead  -> normal training.
 
-    Set n_epochs=2 to get both accurate FLOPs and accurate per-epoch time.
-    Then multiply each by your real number of epochs.
+    Uses per-token normalization so variable-length batches don't add noise.
+    Set trainer.total_epoch_tokens before calling train().
     """
+
+    N_PROFILE = 500   # steps to profile for FLOPs
+    N_TIME = 500      # steps to time without profiler
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.profiled_step_flops = []    # FLOPs per step (epoch 1 only)
-        self.clean_step_times = []       # wall time per step (epoch 2 only)
+        self.total_epoch_tokens = 0            # set before train()
+        self.profiled_total_flops = 0          # sum of FLOPs across profiled steps
+        self.profiled_total_tokens = 0         # sum of tokens across profiled steps
+        self.timed_total_seconds = 0.0         # sum of wall time across timed steps
+        self.timed_total_tokens = 0            # sum of tokens across timed steps
+        self._sample_step_count = 0
 
-    def training_step(self, *args, **kwargs):
+    def _get_num_tokens(self, inputs):
+        """Extract total token count from a batch."""
+        sl = inputs["batch"]["transformer"]["subject_lengths"]
+        if isinstance(sl, torch.Tensor):
+            return sl.sum().item()
+        return int(np.sum(sl))
+
+    def training_step(self, model, inputs, *args, **kwargs):
+        step = self._sample_step_count
+        self._sample_step_count += 1
         use_cuda = self.args.device.type == 'cuda'
 
-        if self.state.epoch < 1.0:
-            # Epoch 1: profile for FLOPs (time is inflated by profiler)
+        if step < self.N_PROFILE:
+            # Phase 1: profile for FLOPs (overhead accepted on these steps)
+            num_tokens = self._get_num_tokens(inputs)
+            activities = [ProfilerActivity.CPU]
             if use_cuda:
-                activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-            else:
-                activities = [ProfilerActivity.CPU]
+                activities.append(ProfilerActivity.CUDA)
 
             with profile(activities=activities, with_flops=True) as prof:
-                loss = super().training_step(*args, **kwargs)
+                loss = super().training_step(model, inputs, *args, **kwargs)
 
             step_flops = sum(
                 evt.flops for evt in prof.key_averages()
                 if evt.flops is not None and evt.flops > 0
             )
-            self.profiled_step_flops.append(step_flops)
+            self.profiled_total_flops += step_flops
+            self.profiled_total_tokens += num_tokens
             return loss
 
-        elif self.state.epoch < 2.0:
-            # Epoch 2: no profiler, measure clean wall time
+        elif step < self.N_PROFILE + self.N_TIME:
+            # Phase 2: clean wall time (no profiler)
+            num_tokens = self._get_num_tokens(inputs)
             if use_cuda:
                 torch.cuda.synchronize()
             t0 = time.perf_counter()
 
-            loss = super().training_step(*args, **kwargs)
+            loss = super().training_step(model, inputs, *args, **kwargs)
 
             if use_cuda:
                 torch.cuda.synchronize()
             t1 = time.perf_counter()
-            self.clean_step_times.append(t1 - t0)
+            self.timed_total_seconds += (t1 - t0)
+            self.timed_total_tokens += num_tokens
+
+            if step == self.N_PROFILE + self.N_TIME - 1:
+                fpt = self.profiled_total_flops / self.profiled_total_tokens
+                tpt = self.timed_total_seconds / self.timed_total_tokens
+                est_flops = fpt * self.total_epoch_tokens
+                # Wall-clock time: GPUs work in parallel in DDP
+                world_size = self.args.world_size if hasattr(self.args, 'world_size') else 1
+                est_time = tpt * self.total_epoch_tokens / world_size
+                print(f"\n[Profiling complete after {self.N_PROFILE}+{self.N_TIME} steps]")
+                print(f"  FLOPs/token (ratio of sums): {fpt:.2e}")
+                print(f"  time/token  (ratio of sums): {tpt:.4e}s")
+                print(f"  estimated epoch FLOPs:       {est_flops:.4e} ({est_flops/1e12:.2f} TFLOPs)")
+                print(f"  estimated epoch walltime:    {est_time:.1f}s ({est_time/3600:.2f}h)")
             return loss
 
-        return super().training_step(*args, **kwargs)
+        # Phase 3: normal training, zero overhead
+        return super().training_step(model, inputs, *args, **kwargs)
 
 
 def main():
@@ -247,6 +288,16 @@ def main():
 
     train_batches = datasets.Dataset.load_from_disk(str(train_batches_path))
     val_batches = datasets.Dataset.load_from_disk(str(val_batches_path))
+
+    # Count total tokens for FLOPs/time extrapolation (fast, memory-mapped reads)
+    print("Counting total tokens across training set...")
+    total_epoch_tokens = 0
+    n_steps = len(train_batches)
+    for i, batch in enumerate(train_batches):
+        total_epoch_tokens += int(np.sum(batch['transformer']['subject_lengths']))
+        if (i + 1) % 10000 == 0:
+            print(f"  {i+1}/{n_steps} batches scanned...")
+    print(f"Total tokens per epoch: {total_epoch_tokens:,} across {n_steps} steps")
 
     # Use Hydra to load model hyperparameters and keep tokenizer-derived fields runtime-bound
     conf_dir = pathlib.Path(__file__).parent / "conf"
@@ -306,6 +357,10 @@ def main():
     # output_dir = 'tmp_trainer_' + sys.argv[1]
     output_dir = args.output_dir
     # print(args.per_device_train_batch_size)
+    # When max_steps is set, this is a profiling-only run: disable epoch-based
+    # eval/save/early-stopping since we won't complete a full epoch.
+    profile_only = args.max_steps > 0
+
     trainer_config = transformers.TrainingArguments(
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
@@ -319,21 +374,22 @@ def main():
         weight_decay=0.05,
         adam_beta2=0.95,
         # report_to="none",
-        report_to=["wandb"],
+        report_to="none" if profile_only else ["wandb"],
         max_grad_norm=args.max_grad_norm,
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
+        max_steps=args.max_steps,
         ddp_find_unused_parameters=False,
 
         warmup_steps=1000,
 
-        logging_strategy='epoch',
+        logging_strategy='steps' if profile_only else 'epoch',
         # logging_strategy='steps',
         logging_steps=10,
 
-        save_strategy='epoch',
-        eval_strategy='epoch',
+        save_strategy='no' if profile_only else 'epoch',
+        eval_strategy='no' if profile_only else 'epoch',
         # evaluation_strategy='epoch',
 
         # prediction_loss_only=True,
@@ -341,45 +397,69 @@ def main():
         dataloader_num_workers=40,
 
         save_total_limit=10,
-        load_best_model_at_end=True,
+        load_best_model_at_end=not profile_only,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
     )
     print(f"CONFIRMATION: The actual per_device_train_batch_size is {trainer_config.per_device_train_batch_size}")
+    if profile_only:
+        print(f"PROFILE-ONLY MODE: will stop after {args.max_steps} steps")
 
-
+    callbacks = [] if profile_only else [CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)]
     trainer = ProfilingTrainer(
         model=model,
         data_collator=processor.collate,
         train_dataset=train_batches,
         eval_dataset=val_batches,
         args=trainer_config,
-        callbacks=[CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)],
+        callbacks=callbacks,
     )
+    trainer.total_epoch_tokens = total_epoch_tokens
 
     train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
-    trainer.log_metrics("train", train_result.metrics)
-    trainer.save_metrics("train", train_result.metrics)
-    trainer.save_state()
+    if not profile_only:
+        trainer.log_metrics("train", train_result.metrics)
+        trainer.save_metrics("train", train_result.metrics)
+        trainer.save_state()
 
-    # Save FLOPs and time metrics
-    # Epoch 1 gives accurate FLOPs, epoch 2 gives accurate time.
-    # Multiply each by your real num_epochs for total training cost.
-    per_epoch_flops = sum(trainer.profiled_step_flops)
-    per_epoch_time = sum(trainer.clean_step_times)
+    # Save FLOPs and time metrics (extrapolated via ratio-of-sums: sum(FLOPs)/sum(tokens))
+    profiled_steps = trainer._sample_step_count if trainer._sample_step_count <= ProfilingTrainer.N_PROFILE else ProfilingTrainer.N_PROFILE
+    timed_steps = max(0, trainer._sample_step_count - ProfilingTrainer.N_PROFILE)
+    timed_steps = min(timed_steps, ProfilingTrainer.N_TIME)
+    if profiled_steps < ProfilingTrainer.N_PROFILE:
+        print(f"WARNING: Only {profiled_steps}/{ProfilingTrainer.N_PROFILE} FLOPs steps completed. "
+              f"Increase --max_steps to >= {ProfilingTrainer.N_PROFILE + ProfilingTrainer.N_TIME}.")
+    if timed_steps == 0 and profiled_steps >= ProfilingTrainer.N_PROFILE:
+        print(f"WARNING: No timing steps completed. FLOPs are available but time estimate is not. "
+              f"Increase --max_steps to >= {ProfilingTrainer.N_PROFILE + ProfilingTrainer.N_TIME}.")
+    fpt = trainer.profiled_total_flops / trainer.profiled_total_tokens if trainer.profiled_total_tokens > 0 else 0
+    tpt = trainer.timed_total_seconds / trainer.timed_total_tokens if trainer.timed_total_tokens > 0 else 0
+    per_epoch_flops = fpt * total_epoch_tokens
+    world_size = trainer.args.world_size if hasattr(trainer.args, 'world_size') else 1
+    per_epoch_time = tpt * total_epoch_tokens / world_size
     training_metrics = {
-        "per_epoch_flops": per_epoch_flops,       # exact FLOPs for 1 epoch (from epoch 1 profiling)
-        "per_epoch_time": per_epoch_time,          # clean wall time for 1 epoch in seconds (from epoch 2, no profiler)
-        "steps_per_epoch": len(trainer.profiled_step_flops),
-        "n_epochs_run": args.n_epochs,             # how many epochs this run used (should be 2 for profiling)
+        "per_epoch_flops": per_epoch_flops,
+        "per_epoch_time_seconds": per_epoch_time,
+        "total_epoch_tokens": total_epoch_tokens,
+        "steps_per_epoch": n_steps,
+        "world_size": world_size,
+        "n_profiled_steps": profiled_steps,
+        "n_timed_steps": timed_steps,
+        "profiled_total_flops": trainer.profiled_total_flops,
+        "profiled_total_tokens": trainer.profiled_total_tokens,
+        "timed_total_seconds": trainer.timed_total_seconds,
+        "timed_total_tokens": trainer.timed_total_tokens,
+        "flops_per_token": fpt,
+        "time_per_token_seconds": tpt,
+        "n_epochs_run": args.n_epochs,
     }
     metrics_path = pathlib.Path(output_dir) / "training_flops_time.json"
     with open(metrics_path, "w") as f:
         json.dump(training_metrics, f, indent=2)
     print(f"Training FLOPs/time metrics saved to {metrics_path}")
     print(f"  per_epoch_flops: {per_epoch_flops:.4e} ({per_epoch_flops / 1e12:.4f} TFLOPs)")
-    print(f"  per_epoch_time:  {per_epoch_time:.2f}s")
-    print(f"  To estimate full training: multiply each by your real num_epochs")
+    print(f"  per_epoch_time:  {per_epoch_time:.2f}s ({per_epoch_time/3600:.2f}h)")
+    print(f"  total_epoch_tokens: {total_epoch_tokens:,}")
 
 
 if __name__ == "__main__":
