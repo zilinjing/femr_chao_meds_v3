@@ -45,7 +45,7 @@ python prepare.py \
 
 # ---- job 2: training (background) ----
 # multi-gpu pretraining
-# export CUDA_VISIBLE_DEVICES=3
+# export CUDA_VISIBLE_DEVICES=1
 
 # accelerate launch \
 #   --num_processes 4 \
@@ -65,7 +65,7 @@ python pretrain.py \
   --pretraining_data $PRETRAINING_DATA \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \
-  --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer \
+  --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer \
   --model transformer \
   --n_epochs 2 \
   --hf_run_name mimic_transformer_motor_6100_test \
@@ -73,3 +73,13 @@ python pretrain.py \
 
 
 #bash run_mimic_motor.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/motor /data2/processed_datasets/zj2398/femr/mimic/motor/ontology.pkl
+
+# python pretrain.py \
+#   --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/motor  \
+#   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+#   --per_device_train_batch_size 1 \
+#   --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer \
+#   --model transformer \
+#   --n_epochs 2 \
+#   --hf_run_name mimic_transformer_motor_6100_test \
+#   --loss_type motor
