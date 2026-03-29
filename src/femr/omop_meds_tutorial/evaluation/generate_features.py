@@ -235,7 +235,7 @@ def main():
             # Save the training metrics to the output file
             with open(training_metrics_file, "w") as output_file:
                 training_metrics = {
-                    "preprocess_time": features["preprocess_time"].total_seconds(),
+                    "preprocess_time": features["preprocess_time"],
                     "infer_time": features["infer_time"],
                     "total_flops": features["total_flops"],
                 }

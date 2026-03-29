@@ -1378,11 +1378,11 @@ def compute_features(
     cpu_device = torch.device("cpu")
 
     print(f"The maximum context length is {tokens_per_batch/min_subjects_per_batch},  {min_subjects_per_batch} subjects and {tokens_per_batch} tokens per batch")
-    preprocess_start_time: datetime.datetime = datetime.datetime.now()
+    preprocess_t0 = time.perf_counter()
     batches = processor.convert_dataset(
         filtered_data, tokens_per_batch=tokens_per_batch, min_subjects_per_batch=min_subjects_per_batch, num_proc=num_proc
     )
-    preprocess_time =  datetime.datetime.now() - preprocess_start_time
+    preprocess_time = time.perf_counter() - preprocess_t0
 
     batches.set_format("pt")
 
