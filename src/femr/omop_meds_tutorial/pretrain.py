@@ -19,6 +19,7 @@ from transformers import TrainerCallback
 from torch.profiler import ProfilerActivity, profile
 import wandb
 import datasets
+from tqdm import tqdm
 datasets.disable_caching()
 
 from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
@@ -121,6 +122,12 @@ def create_arg_parser():
         default=False
     )
     arg_parser.add_argument(
+        "--profile_steps",
+        dest="profile_steps",
+        type=int,
+        default=100
+    )
+    arg_parser.add_argument(
         "--max_steps",
         dest="max_steps",
         type=int,
@@ -171,8 +178,8 @@ class ProfilingTrainer(transformers.Trainer):
     Set trainer.total_epoch_tokens before calling train().
     """
 
-    N_PROFILE = 500   # steps to profile for FLOPs
-    N_TIME = 500      # steps to time without profiler
+    N_PROFILE = 100   # steps to profile for FLOPs
+    N_TIME = 100      # steps to time without profiler
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -293,8 +300,9 @@ def main():
     print("Counting total tokens across training set...")
     total_epoch_tokens = 0
     n_steps = len(train_batches)
-    for i, batch in enumerate(train_batches):
-        total_epoch_tokens += int(np.sum(batch['transformer']['subject_lengths']))
+    for i, batch in tqdm(enumerate(train_batches)):
+        # print(batch['transformer']['subject_lengths'])
+        total_epoch_tokens += int(torch.sum(batch['transformer']['subject_lengths']))
         if (i + 1) % 10000 == 0:
             print(f"  {i+1}/{n_steps} batches scanned...")
     print(f"Total tokens per epoch: {total_epoch_tokens:,} across {n_steps} steps")
@@ -373,8 +381,8 @@ def main():
 
         weight_decay=0.05,
         adam_beta2=0.95,
-        # report_to="none",
-        report_to="none" if profile_only else ["wandb"],
+        report_to="none",
+        # report_to="none" if profile_only else ["wandb"],
         max_grad_norm=args.max_grad_norm,
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
