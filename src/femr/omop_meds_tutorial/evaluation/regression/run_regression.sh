@@ -211,26 +211,60 @@ done
 
 echo "All selected tasks processed."
 
-#export CUDA_VISIBLE_DEVICES=3
+#export CUDA_VISIBLE_DEVICES=1
 # bilirubin,creatinine,pao2,platelets
 
 # bash run_regression.sh \
-#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
 #   --num_proc           32 \
-#   --model_path         /shared/share_mala/zj2398/models/motor_8k/output/best_100620 \
+#   --model_path         /data/models/zj2398/femr/mimic_motor_8k/output/best_100620 \
 #   --model_name         motor \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path      /user/zj2398/cache/mtpp_8k_T_8_V_5/ontology.pkl \
-#   --main_split_path    /user/zj2398/cache/mtpp_8k_T_8_V_5/main_split.csv \
-#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
-#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
+#   --ontology_path      /data/models/zj2398/femr/mimic_motor_8k/ontology.pkl \
+#   --main_split_path    /data/models/zj2398/femr/mimic_motor_8k/main_split.csv \
+#   --cohort_dir   /data2/processed_datasets/mimic/regression/icu_stay_4h_100k/ \
+#   --output_dir   /data/results/zj2398/femr/mimic/regression \
+#   --use_ntp no \
+#   --cache_path /data2/huggingface/zj2398/ \
+#   --tasks "glucose" \
+#   --regression 
+
+# bash run_regression.sh \
+#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+#   --num_proc           32 \
+#   --model_path         /data/models/zj2398/femr/mimic_motor_8k/output/best_100620 \
+#   --model_name         motor \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --min_subjects_per_batch 8 \
+#   --ontology_path      /data/models/zj2398/femr/mimic_motor_8k/ontology.pkl \
+#   --main_split_path    /data/models/zj2398/femr/mimic_motor_8k/main_split.csv \
+#   --cohort_dir   /data2/processed_datasets/mimic/regression/icu_stay_4h_100k/ \
+#   --output_dir   /data/results/zj2398/femr/mimic/regression \
 #   --use_ntp no \
 #   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
 #   --tasks "glucose" \
 #   --regression 
 
+
+
+#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+#   --num_proc           24 \
+#   --model_path        /data2/processed_datasets/zj2398/femr/mimic/ntp/mamba_2e-4_5.0/best_101112 \
+#   --model_name         mamba_ntp_2e-4 \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --min_subjects_per_batch 8 \
+#   --ontology_path     /data2/processed_datasets/zj2398/femr/mimic/ntp/ontology.pkl \
+#   --main_split_path    /data2/processed_datasets/zj2398/femr/mimic/ntp/main_split.csv \
+#   --cohort_dir    /data2/processed_datasets/mimic/regression/icu_stay_4h_100k/ \
+#   --output_dir   /data/results/zj2398/femr/mimic/regression \
+#   --use_ntp yes \
+#   --cache_path /data2/huggingface/zj2398/ \
+#   --tasks "bilirubin,creatinine" \
+#   --regression 
 
 
 

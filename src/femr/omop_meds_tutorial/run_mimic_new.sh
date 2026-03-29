@@ -47,7 +47,7 @@ python prepare.py \
 
 # ---- job 2: training (background) ----
 # multi-gpu pretraining
-# export CUDA_VISIBLE_DEVICES=1,2,3
+# export CUDA_VISIBLE_DEVICES=1
 
 # accelerate launch \
 #   --num_processes 4 \
@@ -60,16 +60,28 @@ python prepare.py \
 #   --hf_run_name mimic_mamba_mtpp_shared_6100_bin_5 \
 #   --loss_type mtpp_shared
 
-accelerate launch \
-  --num_processes 3 \
-  pretrain.py \
+# accelerate launch \
+#   --num_processes 3 \
+
+python pretrain.py \
   --pretraining_data $PRETRAINING_DATA \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \
-  --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10/transformer \
+  --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer \
   --model transformer \
-  --hf_run_name mimic_transformer_mtpp_6100_T_${TIME_BINS}_V_${VALUE_BINS} \
+  --n_epochs 2 \
+  --hf_run_name mimic_transformer_mtpp_6100_T_${TIME_BINS}_V_${VALUE_BINS}_test \
   --loss_type mtpp_shared 
 
 
-#bash run_mimic_new.sh 16 10 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10/ontology.pkl
+#bash run_mimic_new.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/ontology.pkl
+
+# python pretrain.py \
+#   --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5 \
+#   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+#   --per_device_train_batch_size 1 \
+#   --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer \
+#   --model transformer \
+#   --n_epochs 2 \
+#   --hf_run_name mimic_transformer_mtpp_6100_T_8_V_5_test \
+#   --loss_type mtpp_shared 
