@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 import math
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from dataclasses import dataclass
@@ -1320,7 +1321,7 @@ def compute_features(
         ontology: Optional[femr.ontology.Ontology] = None,
         observation_window: Optional[int] = None,
         min_subjects_per_batch: int = 1,
-        total_flops: TotalFlops = None,
+        total_flops: Optional[int] = None,
         loss_type: str = None,
         use_ntp: bool = False,
         cache_path: str = None,
@@ -1377,9 +1378,11 @@ def compute_features(
     cpu_device = torch.device("cpu")
 
     print(f"The maximum context length is {tokens_per_batch/min_subjects_per_batch},  {min_subjects_per_batch} subjects and {tokens_per_batch} tokens per batch")
+    preprocess_start_time: datetime.datetime = datetime.datetime.now()
     batches = processor.convert_dataset(
         filtered_data, tokens_per_batch=tokens_per_batch, min_subjects_per_batch=min_subjects_per_batch, num_proc=num_proc
     )
+    preprocess_time =  datetime.datetime.now() - preprocess_start_time
 
     batches.set_format("pt")
 
@@ -1389,23 +1392,41 @@ def compute_features(
     all_feature_times = []
     all_representations = []
 
+    batch_flops_list = []
+    batch_times_wall = []
+    use_cuda = device is not None and 'cuda' in str(device)
+
+    if use_cuda:
+        activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+    else:
+        activities = [ProfilerActivity.CPU]
+
     with torch.no_grad():
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             for batch in tqdm(loader):
                 if device:
                     batch = to_device(batch, device)
 
-                if total_flops:
-                    with profile(
-                            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                            with_flops=True,
-                    ) as prof:
+                if total_flops is not None:
+                    # Sync before timing for accurate wall-clock on GPU
+                    if use_cuda:
+                        torch.cuda.synchronize(device)
+                    t0 = time.perf_counter()
+
+                    with profile(activities=activities, with_flops=True) as prof:
                         _, result = model(**batch, return_reprs=True)
 
-                    for event in prof.key_averages():
-                        if hasattr(event, "flops") and event.flops > 0:
-                            # Convert to GFLOPs
-                            total_flops.total_flops += event.flops / 1e9
+                    if use_cuda:
+                        torch.cuda.synchronize(device)
+                    t1 = time.perf_counter()
+                    batch_times_wall.append(t1 - t0)
+
+                    # Sum FLOPs from all profiled events
+                    batch_flops = sum(
+                        evt.flops for evt in prof.key_averages()
+                        if evt.flops is not None and evt.flops > 0
+                    )
+                    batch_flops_list.append(batch_flops)
                 else:
                     _, result = model(**batch, return_reprs=True)
 
@@ -1413,8 +1434,11 @@ def compute_features(
                 all_feature_times.append(result["timestamps"].to(cpu_device, non_blocking=True))
                 all_representations.append(result["representations"].to(cpu_device, non_blocking=True))
 
-    torch.cuda.synchronize()
+    if use_cuda:
+        torch.cuda.synchronize()
 
+    sum_flops = sum(batch_flops_list)
+    total_wall = sum(batch_times_wall)
     all_subject_ids_np = torch.concatenate(all_subject_ids).numpy()
     all_feature_times_np = torch.concatenate(all_feature_times).numpy()
     all_representations_np = torch.concatenate(all_representations).numpy()
@@ -1423,4 +1447,7 @@ def compute_features(
         "subject_ids": all_subject_ids_np,
         "feature_times": all_feature_times_np.astype("datetime64[s]"),
         "features": all_representations_np,
+        "total_flops": sum_flops,
+        "preprocess_time": preprocess_time,
+        "infer_time": total_wall,
     }

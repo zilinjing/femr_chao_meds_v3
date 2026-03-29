@@ -212,8 +212,6 @@ def main():
                 for label in labels.to_dict(orient="records")
             ]
             print(f"typed_labels length: {len(typed_labels)}")
-            # total_flops = femr.models.transformer.TotalFlops()
-            start_time: datetime.datetime = datetime.datetime.now()
             features = femr.models.architecture.embedding.compute_features(
                 db=database,
                 model_path=args.model_path,
@@ -226,20 +224,22 @@ def main():
                 min_subjects_per_batch=args.min_subjects_per_batch,
                 loss_type=args.loss_type,
                 use_ntp=args.use_ntp,
-                cache_path=args.cache_path
-                # total_flops=None
+                cache_path=args.cache_path,
+                total_flops=0
             )
 
             with open(feature_output_path, 'wb') as f:
                 pickle.dump(features, f)
 
+
             # Save the training metrics to the output file
-            # with open(training_metrics_file, "w") as output_file:
-            #     training_metrics = {
-            #         "duration_in_seconds": (datetime.datetime.now() - start_time).total_seconds(),
-            #         # "total_flops": total_flops.total_flops,
-            #     }
-            #     json.dump(training_metrics, output_file)
+            with open(training_metrics_file, "w") as output_file:
+                training_metrics = {
+                    "preprocess_time": features["preprocess_time"].total_seconds(),
+                    "infer_time": features["infer_time"],
+                    "total_flops": features["total_flops"],
+                }
+                json.dump(training_metrics, output_file)
 
 if __name__ == "__main__":
     main()
