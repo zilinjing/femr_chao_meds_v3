@@ -296,15 +296,16 @@ def main():
     train_batches = datasets.Dataset.load_from_disk(str(train_batches_path))
     val_batches = datasets.Dataset.load_from_disk(str(val_batches_path))
 
-    # Count total tokens for FLOPs/time extrapolation (fast, memory-mapped reads)
+    # Count total tokens for FLOPs/time extrapolation (parallelized across 32 processes)
     print("Counting total tokens across training set...")
-    total_epoch_tokens = 0
     n_steps = len(train_batches)
-    for i, batch in tqdm(enumerate(train_batches)):
-        # print(batch['transformer']['subject_lengths'])
-        total_epoch_tokens += int(torch.sum(batch['transformer']['subject_lengths']))
-        if (i + 1) % 10000 == 0:
-            print(f"  {i+1}/{n_steps} batches scanned...")
+    token_counts = train_batches.map(
+        lambda batch: {"_n_tokens": [int(np.sum(batch["transformer"]["subject_lengths"]))]},
+        num_proc=32,
+        remove_columns=train_batches.column_names,
+        desc="Counting tokens",
+    )
+    total_epoch_tokens = sum(token_counts["_n_tokens"])
     print(f"Total tokens per epoch: {total_epoch_tokens:,} across {n_steps} steps")
 
     # Use Hydra to load model hyperparameters and keep tokenizer-derived fields runtime-bound
