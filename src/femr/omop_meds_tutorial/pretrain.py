@@ -178,8 +178,8 @@ class ProfilingTrainer(transformers.Trainer):
     Set trainer.total_epoch_tokens before calling train().
     """
 
-    N_PROFILE = 100   # steps to profile for FLOPs
-    N_TIME = 100      # steps to time without profiler
+    N_PROFILE = 200   # steps to profile for FLOPs
+    N_TIME = 200      # steps to time without profiler
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -300,12 +300,12 @@ def main():
     print("Counting total tokens across training set...")
     n_steps = len(train_batches)
     token_counts = train_batches.map(
-        lambda batch: {"_n_tokens": [int(np.sum(batch["transformer"]["subject_lengths"]))]},
-        num_proc=32,
+        lambda batch: {"_n_tokens": [int(torch.sum(batch["transformer"]["subject_lengths"]))]},
+        num_proc=64,
         remove_columns=train_batches.column_names,
         desc="Counting tokens",
     )
-    total_epoch_tokens = sum(token_counts["_n_tokens"])
+    total_epoch_tokens = sum(int(x) for x in token_counts["_n_tokens"])
     print(f"Total tokens per epoch: {total_epoch_tokens:,} across {n_steps} steps")
 
     # Use Hydra to load model hyperparameters and keep tokenizer-derived fields runtime-bound

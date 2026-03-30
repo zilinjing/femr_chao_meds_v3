@@ -82,7 +82,7 @@ python prepare.py \
 #   --per_device_train_batch_size 1 \
 #   --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer \
 #   --model transformer \
-#   --n_epochs 2 \
-#   --max_steps 110 \
+#   --max_steps 450 \
+#   --n_epochs 1 \
 #   --hf_run_name mimic_transformer_mtpp_6100_T_8_V_5_test \
 #   --loss_type mtpp_shared 

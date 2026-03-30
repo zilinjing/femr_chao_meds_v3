@@ -45,7 +45,7 @@ python prepare.py \
 
 # ---- job 2: training (background) ----
 # multi-gpu pretraining
-# export CUDA_VISIBLE_DEVICES=3
+# export CUDA_VISIBLE_DEVICES=1
 
 # accelerate launch \
 #   --num_processes 4 \
@@ -80,7 +80,8 @@ python pretrain.py \
 #   --per_device_train_batch_size 1 \
 #   --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer \
 #   --model transformer \
-#   --n_epochs 2 \
-#   --max_steps 210 \
+#   --n_epochs 1 \
 #   --hf_run_name mimic_transformer_motor_6100_test \
 #   --loss_type motor
+
+#   --max_steps 450 \

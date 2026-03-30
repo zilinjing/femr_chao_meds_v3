@@ -211,14 +211,14 @@ done
 
 echo "All selected tasks processed."
 
-#export CUDA_VISIBLE_DEVICES=1
+#export CUDA_VISIBLE_DEVICES=2
 # bilirubin,creatinine,pao2,platelets
 
 # bash run_regression.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
 #   --num_proc           32 \
-#   --model_path         /data/models/zj2398/femr/mimic_motor_8k/output/best_100620 \
-#   --model_name         motor \
+#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/best_159744 \
+#   --model_name         mtpp \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --min_subjects_per_batch 8 \
