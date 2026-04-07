@@ -16,6 +16,7 @@ from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
 from femr.models.tasks.ntp import CLMBRTask as CLMBRTask
 from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
+from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
 
 
 def main(args):
@@ -90,7 +91,8 @@ def main(args):
             else:
                 tokenizer = HierarchicalTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
 
-        task_path = pretraining_data_path / f'{args.loss_type}_task.pkl'
+        task_loss_type = "mtpp" if args.loss_type == "mtpp_shared" else args.loss_type
+        task_path = pretraining_data_path / f'{task_loss_type}_task.pkl'
 
         if not task_path.exists():
             # Second, we need to prefit the MOTOR model. This is necessary because piecewise exponential models are unstable without an initial fit
@@ -125,6 +127,19 @@ def main(args):
                     codes_to_skip=codes_to_skip,
                     num_value_bins=args.value_bins,
                     value_count_threshold=args.value_count_threshold
+                )
+            elif args.loss_type == "mtpp_value":
+                print("mtpp_value choosen")
+                task = MTPPValue_Task.fit_pretraining_task_info(
+                    main_database,
+                    tokenizer,
+                    num_tasks=8 * 1024,
+                    num_final_tasks=args.num_final_tasks,
+                    num_bins=args.time_bins,
+                    final_layer_size=512,
+                    codes_to_skip=codes_to_skip,
+                    num_value_bins=args.value_bins,
+                    value_count_threshold=args.value_count_threshold,
                 )
             elif args.loss_type == "ntp":
                 print("ntp choosen")
@@ -339,7 +354,7 @@ def create_omop_meds_tutorial_argparser():
         dest="loss_type",
         action="store",
         required=True,
-        choices=["motor","tpp","mtpp","ntp"],
+        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp"],
         type=str,
         default=8,
     )

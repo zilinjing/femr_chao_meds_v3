@@ -217,7 +217,7 @@ class MTPPValue_Task(Task):
             num_value_bins: int = 10
     ) -> MTPPValue_Task:
         tasks = []
-        print("using mtpp origin")
+        print("using mtpp_value")
         for dict_entry in tokenizer.dictionary["vocab"]:
             if dict_entry["type"] == "code":
                 # Skip the codes that are in the codes_to_skip
@@ -238,9 +238,8 @@ class MTPPValue_Task(Task):
             _prefit_motor_agg, db.map(functools.partial(_prefit_motor_map, tasks=tasks, ontology=tokenizer.ontology))
         )
 
-        # First pass: classify and filter tasks, preserving order
+        # First pass: keep only numerical tasks with observed values.
         numerical_tasks_info = []  # List of (index, task, task_stats, rate, value_sample_count)
-        # non_numerical_tasks_info = []  # List of (index, task, task_stats, rate)
 
         for i, (task, task_stats) in enumerate(zip(tasks, stats)):
             frac_events = task_stats[1] / (task_stats[0] + task_stats[1])
@@ -260,36 +259,22 @@ class MTPPValue_Task(Task):
                         f"value_count={value_sample_count}")
                     continue
                 numerical_tasks_info.append((i, task, task_stats, rate, value_sample_count))
-            # else:
-            #     # Non-numerical task - original threshold
-            #     if frac_events < 1 / 1000:
-            #         print(f"Filtered out rare non-numerical task {task}: frac_events={frac_events}, "
-            #             f"censored={task_stats[0]}, events={task_stats[1]}, mean_time={task_stats[2].mean()}")
-            #         continue
-            #     non_numerical_tasks_info.append((i, task, task_stats, rate))
 
         # Apply num_final_tasks limit
-        total_filtered = len(numerical_tasks_info) 
+        if len(numerical_tasks_info) > num_final_tasks:
+            print(
+                f"Limiting numerical tasks from {len(numerical_tasks_info)} to "
+                f"{num_final_tasks} to stay within num_final_tasks={num_final_tasks}"
+            )
+            numerical_tasks_info = numerical_tasks_info[:num_final_tasks]
+
+        total_filtered = len(numerical_tasks_info)
         print(f"After filtering: {len(numerical_tasks_info)} numerical tasks")
-        
-        # if total_filtered > num_final_tasks:
-        #     max_non_numerical = num_final_tasks - len(numerical_tasks_info)
-        #     if max_non_numerical < 0:
-        #         warnings.warn(f"Number of numerical tasks ({len(numerical_tasks_info)}) exceeds "
-        #                     f"num_final_tasks ({num_final_tasks}). Keeping all numerical tasks anyway.")
-        #         max_non_numerical = 0
-            
-        #     original_non_num_count = len(non_numerical_tasks_info)
-        #     non_numerical_tasks_info = non_numerical_tasks_info[:max_non_numerical]
-            
-        #     print(f"Limited non-numerical tasks from {original_non_num_count} to {len(non_numerical_tasks_info)} "
-        #         f"to stay within num_final_tasks={num_final_tasks}")
-        #     print(f"Final: {len(numerical_tasks_info)} numerical + {len(non_numerical_tasks_info)} "
-        #         f"non-numerical = {len(numerical_tasks_info) + len(non_numerical_tasks_info)} tasks")
+        if total_filtered == 0:
+            raise ValueError("MTPPValue_Task.fit_pretraining_task_info found no eligible numerical tasks.")
 
         # Second pass: create bins for selected tasks in the correct order
         numerical_time_bins = []
-        non_numerical_time_bins = []
         value_bins = []
         value_valid_mask = []
         numerical_task_list = []
@@ -322,28 +307,14 @@ class MTPPValue_Task(Task):
             print(f"Created {int(sum(mask))} valid value bins for numerical task {task} "
                 f"from {value_sample_count} samples")
 
-        # # Process non-numerical tasks
-        # for i, task, task_stats, rate in non_numerical_tasks_info:
-        #     task_data.append((task, rate, task_stats[0], task_stats[1], task_stats[2].mean()))
-            
-        #     # Create time bins for non-numerical task
-        #     non_numerical_task_time_bins = np.percentile(
-        #         task_length_samples[i].samples, np.linspace(0, 100, num_bins + 1)
-        #     )
-        #     non_numerical_task_time_bins[0] = 0
-        #     non_numerical_task_time_bins[-1] = float("inf")
-        #     non_numerical_time_bins.append(list(non_numerical_task_time_bins))
-
         # Convert to arrays
-        # non_numerical_time_bins = np.array(non_numerical_time_bins) if non_numerical_time_bins else np.array([]).reshape(0, num_bins + 1)
         numerical_time_bins = np.array(numerical_time_bins) if numerical_time_bins else np.array([]).reshape(0, num_bins + 1)
         value_bins = np.array(value_bins) if value_bins else np.array([]).reshape(0, num_value_bins + 1)
         value_valid_mask = np.array(value_valid_mask) if value_valid_mask else np.array([]).reshape(0, num_value_bins + 1)
         
         print(f"Final task count: {len(task_data)}")
-        print(f"Numerical tasks: {len(numerical_task_list)}, Non-numerical tasks: {len(task_data) - len(numerical_task_list)}")
+        print(f"Numerical tasks: {len(numerical_task_list)}")
         print(f"Numerical time bins shape: {numerical_time_bins.shape}")
-        print(f"Non-numerical time bins shape: {non_numerical_time_bins.shape}")
         print(f"Value bins shape: {value_bins.shape}")
 
         return MTPPValue_Task(
@@ -375,43 +346,35 @@ class MTPPValue_Task(Task):
         self.numerical_task_list = numerical_task_list
 
         self.pretraining_task_codes = set()
-        self.task_to_index_map = {}  # Only for non-numerical codes
         self.numerical_task_to_index_map = {}  # Only for numerical codes
         
         # the self.pretraining_task_info is a list of tuples, each tuple is a task name, rate, num_events, num_censored, mean_time
-        # non_numerical_idx = 0
         numerical_idx = 0
         for i, task in enumerate(self.pretraining_task_info):
             task_name = task[0]
             self.pretraining_task_codes.add(task_name)
             
-            # Separate numerical and non-numerical task indices
             if task_name in self.numerical_task_list:
-                # This is a numerical task
                 self.numerical_task_to_index_map[task_name] = numerical_idx
                 numerical_idx += 1
-            # else:
-            #     # This is a non-numerical task
-            #     self.task_to_index_map[task_name] = non_numerical_idx
-            #     non_numerical_idx += 1
 
         assert len(self.numerical_task_to_index_map) == len(self.numerical_task_list), f"len(self.numerical_task_to_index_map) = {len(self.numerical_task_to_index_map)}, len(self.numerical_task_list) = {len(self.numerical_task_list)}"
-        # assert len(self.task_to_index_map) == len(self.pretraining_task_info) - len(self.numerical_task_list), f"len(self.task_to_index_map) = {len(self.task_to_index_map)}, len(self.pretraining_task_info) = {len(self.pretraining_task_info)}, len(self.numerical_task_list) = {len(self.numerical_task_list)}"
+        assert len(self.pretraining_task_info) == len(self.numerical_task_list), (
+            "MTPPValue_Task should only contain numerical tasks. "
+            f"Found {len(self.pretraining_task_info)} tasks but {len(self.numerical_task_list)} numerical tasks."
+        )
 
 
 
     def get_task_config(self) -> femr.models.config.FEMRTaskConfig:
         return femr.models.config.FEMRTaskConfig(
-            task_type="motor",
+            task_type="mtpp_value",
             task_kwargs=dict(
                 pretraining_task_info=self.pretraining_task_info,
-                non_numerical_task = list(self.task_to_index_map.keys()),   # Only for non-numerical codes
                 numerical_task = list(self.numerical_task_to_index_map.keys()), # Only for numerical codes
                 value_bins=self.value_bins.tolist() if isinstance(self.value_bins, np.ndarray) else self.value_bins,
-                non_numerical_task_time_bins=self.non_numerical_time_bins.tolist() if isinstance(self.non_numerical_time_bins, np.ndarray) else self.non_numerical_time_bins,
                 numerical_task_time_bins=self.numerical_time_bins.tolist() if isinstance(self.numerical_time_bins, np.ndarray) else self.numerical_time_bins,
                 final_layer_size=self.final_layer_size,
-                # num_value_bins=self.num_value_bins,
             ),
         )
 
@@ -420,16 +383,6 @@ class MTPPValue_Task(Task):
         self.calculator = MTPPValue_SurvivalCalculator(ontology, subject, self.pretraining_task_codes)
 
         self.per_subject_censor_time: List[float] = []
-        self.per_subject_time_sparse: Dict[str, List[float]] = {
-            "time": [],
-            "indices": [],
-            "indptr": [0],
-        }
-        
-        # Add value sparse matrices for numerical tasks
-        # Structure: ['data']: time of the event, ['value']: value of event
-        # ['indices']: code for lab value prediction in numerical vocabulary self.numerical_task_to_index_map
-        # ['indptr']: index of each time point
         self.per_subject_value_sparse: Dict[str, List[float]] = {
             "time": [],  # time of the event
             "value": [],  # value of event  
@@ -446,14 +399,7 @@ class MTPPValue_Task(Task):
 
     def start_batch(self) -> None:
         self.censor_time: List[float] = []
-
-        self.time_sparse: Dict[str, List[float]] = {
-            "time": [],
-            "indices": [],
-            "indptr": [0],
-        }
         
-        # Add value sparse matrices for batch
         self.value_sparse: Dict[str, List[float]] = {
             "time": [],  # time of the event
             "value": [],  # value of event
@@ -466,14 +412,6 @@ class MTPPValue_Task(Task):
         self.censor_time.extend([self.per_subject_censor_time[i] for i in subject_label_offsets])
 
         for index in subject_label_offsets:
-            # Handle time sparse data
-            start = int(self.per_subject_time_sparse["indptr"][index])
-            end = int(self.per_subject_time_sparse["indptr"][index + 1])
-            self.time_sparse["time"].extend(self.per_subject_time_sparse["time"][start:end])
-            self.time_sparse["indices"].extend(self.per_subject_time_sparse["indices"][start:end])
-            self.time_sparse["indptr"].append(len(self.time_sparse["indices"]))
-            
-            # Handle value sparse data for numerical tasks
             value_start = int(self.per_subject_value_sparse["indptr"][index])
             value_end = int(self.per_subject_value_sparse["indptr"][index + 1])
             self.value_sparse["time"].extend(self.per_subject_value_sparse["time"][value_start:value_end])
@@ -506,24 +444,14 @@ class MTPPValue_Task(Task):
 
         for event_name, (time_delta, value) in tte.items():
             seconds = time_delta.total_seconds()
-            
-            # Handle non-numerical tasks
-            # if event_name in self.task_to_index_map:
-            #     j = self.task_to_index_map[event_name]
-            #     self.per_subject_time_sparse["time"].append(seconds)
-            #     self.per_subject_time_sparse["indices"].append(j)
-            
-            # Handle numerical tasks  
+
             if value is not None and event_name in self.numerical_task_to_index_map:
                 numerical_j = self.numerical_task_to_index_map[event_name]
                 self.per_subject_value_sparse["time"].append(seconds)
                 self.per_subject_value_sparse["value"].append(value)
                 self.per_subject_value_sparse["indices"].append(numerical_j)
 
-        self.per_subject_time_sparse["indptr"].append(len(self.per_subject_time_sparse["time"]))
         self.per_subject_value_sparse["indptr"].append(len(self.per_subject_value_sparse["time"]))
-        # print(f"add event {len(self.per_subject_time_sparse['data'])}")
-        # print(f"add event {len(self.per_subject_time_sparse['indptr'])}")
 
         return 1
 
@@ -539,45 +467,25 @@ class MTPPValue_Task(Task):
                 result["value"] = np.array(a["value"], dtype=dtype)
             return result
 
-        # print(f"this batch return censor_time shape: {np.array(self.censor_time, dtype=np.float32).shape}")
-        # print(f"this batch return data shape: {h(self.time_sparse, dtype=np.float32)['data'].shape}")
-        # print(f"this batch return indices shape: {h(self.time_sparse, dtype=np.float32)['indices'].shape}")
-        # print(f"this batch return indptr shape: {h(self.time_sparse, dtype=np.float32)['indptr'].shape}")
-
-        result = {
+        return {
             "censor_time": np.array(self.censor_time, dtype=np.float32),
-            "time_sparse": h(self.time_sparse, dtype=np.float32),
             "value_sparse" : h(self.value_sparse, dtype=np.float32),
         }
-        
-        # Add value data if there are numerical tasks
-        # if len(self.task_value_bins) > 0:
-            # result["value_sparse"] = h(self.value_sparse, dtype=np.float32)
-        
-        return result
 
     def cleanup(self, batch: Mapping[str, torch.Tensor]) -> Mapping[str, torch.Tensor]:
         """
-        Convert sparse time-to-event data into dense tensors for loss calculation.
-        
-        Now handles both non-numerical and numerical codes separately:
-        - Non-numerical codes: original time-only prediction
-        - Numerical codes: combined time-value prediction with vectorized value binning
-        
-        Returns:
-        - is_event: [prediction_points, time_bins, non_numerical_tasks] - for non-numerical codes
-        - is_censored: [prediction_points, non_numerical_tasks] - for non-numerical codes
-        - value_is_event: [prediction_points, time_bins, value_bins, numerical_tasks] - for numerical codes
-        - value_is_censored: [prediction_points, numerical_tasks] - for numerical codes
+        Convert sparse numerical time/value labels into dense tensors for loss calculation.
         """
-        # assert f"{self.non_numerical_time_bins.shape[1]==self.numerical_time_bins.shape[1]}"
-        # assert f"{self.non_numerical_time_bins.shape[0] == len(self.task_to_index_map)}", f"self.non_numerical_time_bins is {self.non_numerical_time_bins.shape[0]}  while self.task_to_index_map is {len(self.task_to_index_map)}"
-        assert f"{self.numerical_time_bins[0] == len(self.numerical_task_to_index_map)}", f"self.numerical_time_bins is {self.numerical_time_bins[0]} len(self.numerical_task_to_index_map) is {len(self.numerical_task_to_index_map)}"
+        assert self.numerical_time_bins.shape[0] == len(self.numerical_task_to_index_map), (
+            "numerical_time_bins and numerical_task_to_index_map disagree on task count: "
+            f"{self.numerical_time_bins.shape[0]} vs {len(self.numerical_task_to_index_map)}"
+        )
 
         num_time_bins = self.numerical_time_bins.shape[1] - 1
         num_indices = len(batch["censor_time"])
-        # num_non_numerical_tasks = len(self.task_to_index_map)
         num_numerical_tasks = len(self.numerical_task_to_index_map)
+        if num_numerical_tasks == 0:
+            raise ValueError("MTPPValue_Task.cleanup requires at least one numerical task.")
 
         def sparse_to_dense(sparse_data, num_tasks):
             """Convert sparse data to dense tensor with proper edge case handling"""
@@ -630,24 +538,8 @@ class MTPPValue_Task(Task):
 
         # Convert to dense tensors
         censor_times = batch["censor_time"]  # [pred_points]
-        
-        # Process non-numerical codes (original time-only logic)
         result = {}
-        # if num_non_numerical_tasks > 0:
-        #     time_non_numerical = sparse_to_dense(batch["time_sparse"], num_non_numerical_tasks)
-            
-        #     # Create time bins for non-numerical tasks
-        #     is_event_non_numerical, is_censored_non_numerical, censor_time_ratio_non_numerical = self._create_time_bins(
-        #         time_non_numerical, censor_times, num_time_bins
-        #     )
-            
-        #     result.update({
-        #         "non_numerical_is_event": is_event_non_numerical,
-        #         "non_numerical_is_censored": is_censored_non_numerical, 
-        #         "non_numerical_censor_time_ratio": censor_time_ratio_non_numerical
-        #     })
 
-        # Process numerical codes (new value-aware logic)
         if num_numerical_tasks > 0 and "value_sparse" in batch:
             time_numerical, values_numerical = sparse_to_dense(batch["value_sparse"], num_numerical_tasks)
             
@@ -666,78 +558,6 @@ class MTPPValue_Task(Task):
             })
         
         return result
-    
-            #     'time_event_in_bin': time_event_in_bin,      # [pred_points, time_bins, numerical_tasks]
-            # 'time_censor_in_bin': time_censor_in_bin,    # [pred_points, time_bins, numerical_tasks]  
-            # 'value_event_in_bin': value_event_in_bin,    # [pred_points, value_bins, numerical_tasks]
-            # 'time_is_censored': time_is_censored         # [pred_points, numerical_tasks]
-
-    # def _create_time_bins(self, time_data, censor_times, num_time_bins):
-    #     """Create time bins for non-numerical tasks (original logic)"""
-    #     num_indices, num_tasks = time_data.shape
-    #     device = time_data.device
-        
-    #     # Initialize output tensors
-    #     is_event = torch.zeros(size=(num_indices, num_time_bins, num_tasks), dtype=torch.bool, device=device)
-    #     is_censored = torch.zeros(size=(num_indices, num_tasks), dtype=torch.bool, device=device)
-        
-    #     # has_future_event shape: [pred_points, task_points]
-    #     has_future_event = time_data != 0
-        
-    #     # Convert time_bins to torch tensor for vectorized operations
-    #     time_bins_tensor = torch.from_numpy(self.non_numerical_time_bins).to(device=device, dtype=time_data.dtype)
-    #     # print(f"time_bins shape {self.time_bins.shape}")
-    #     # print(f"time_bins_tensor shape {time_bins_tensor.shape},")
-        
-    #     # Expand dimensions for broadcasting
-    #     time_expanded = time_data.unsqueeze(1)  # [pred_points, 1, task_points]
-    #     censor_times_expanded = censor_times.unsqueeze(1).unsqueeze(2)  # [pred_points, 1, 1]
-        
-    #     # Extract start and end of each bin
-    #     bin_starts = time_bins_tensor[:, :-1].T.unsqueeze(0)  # [1, num_bins, task_points]
-    #     bin_ends = time_bins_tensor[:, 1:].T.unsqueeze(0)     # [1, num_bins, task_points]
-    #     bin_widths = bin_ends - bin_starts
-
-
-        
-    #     # For events: check which bin each event time falls into
-    #     event_in_bin = (has_future_event.unsqueeze(1) & 
-    #                    (bin_starts <= time_expanded) & 
-    #                    (time_expanded < bin_ends))
-        
-    #     # For censoring: check which bin each censor time falls into
-    #     censor_in_bin = ((~has_future_event).unsqueeze(1) & 
-    #                     (bin_starts <= censor_times_expanded) & 
-    #                     (censor_times_expanded < bin_ends))
-        
-    #     censor_time_ratio = ((censor_times_expanded - bin_starts) / bin_widths) * censor_in_bin
-        
-    #     # Combine event and censoring cases
-    #     is_event = event_in_bin | censor_in_bin
-    #     is_censored = ~has_future_event
-        
-    #     # Validation: ensure exactly one bin per prediction-task combination
-    #     bins_per_pred_task = torch.sum(is_event, dim=1)
-        
-    #     assert torch.all(bins_per_pred_task == 1), "bins_per_pred_task should be 1"
-    #     # # Fix edge cases
-    #     # zero_bins_mask = bins_per_pred_task == 0
-    #     # if torch.any(zero_bins_mask):
-    #     #     pred_indices, task_indices = torch.where(zero_bins_mask)
-    #     #     is_event[pred_indices, -1, task_indices] = True
-        
-    #     # multiple_bins_mask = bins_per_pred_task > 1
-    #     # if torch.any(multiple_bins_mask):
-    #     #     pred_indices, task_indices = torch.where(multiple_bins_mask)
-    #     #     for i in range(len(pred_indices)):
-    #     #         pred_idx, task_idx = pred_indices[i], task_indices[i]
-    #     #         true_bins = torch.where(is_event[pred_idx, :, task_idx])[0]
-    #     #         is_event[pred_idx, true_bins[1:], task_idx] = False
-        
-    #     return is_event, is_censored, censor_time_ratio
-    
-    # decide which value bin each value falls into
-    # values_numerical: [pred_points, numerical_tasks]
 
 
     def _create_time_value_bins(self, time_numerical, values_numerical, censor_times, num_time_bins):
@@ -806,17 +626,15 @@ class MTPPValue_Task(Task):
                              (value_bins_starts <= value_expanded) & 
                              (value_expanded < value_bins_ends))
 
-    #     assert torch.allclose(time_event_in_bin.sum(dim=1).float(),torch.ones(time_event_in_bin.shape[0], time_event_in_bin.shape[2], device=time_event_in_bin.device)), \
-    # "Sums along time_bins are not equal to 1"
-    #     assert torch.allclose(value_event_in_bin.sum(dim=1).float(), torch.ones(value_event_in_bin.shape[0], value_event_in_bin.shape[2],device=time_event_in_bin.device)), \
-    # "Sums along value_bins are not equal to 1"
-    
-        
-        # === COMBINE TIME AND VALUE BINS ===
-        # Return separate matrices for flexible loss computation in transformer
-        
-        # Time-related outputs: [pred_points, time_bins, numerical_tasks]
-        time_is_event = time_event_in_bin | time_censor_in_bin  
+        time_bin_counts = torch.sum(time_event_in_bin | time_censor_in_bin, dim=1)
+        assert torch.all(time_bin_counts == 1), "Each prediction/task pair should map to exactly one time bin."
+
+        if torch.any(has_future_event):
+            value_bin_counts = torch.sum(value_event_in_bin, dim=1)
+            assert torch.all(value_bin_counts[has_future_event] == 1), (
+                "Each numerical event should map to exactly one value bin."
+            )
+
         time_is_censored = ~has_future_event  # [pred_points, numerical_tasks]
         
         return {
@@ -825,4 +643,3 @@ class MTPPValue_Task(Task):
             'value_event_in_bin': value_event_in_bin,    # [pred_points, value_bins, numerical_tasks]
             'time_is_censored': time_is_censored         # [pred_points, numerical_tasks]
         }
-

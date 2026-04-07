@@ -25,6 +25,7 @@ datasets.disable_caching()
 from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
 from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
+from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
 
 class CustomEarlyStoppingCallback(transformers.EarlyStoppingCallback):
     def check_metric_value(self, args, state, control, metric_value):
@@ -111,7 +112,7 @@ def create_arg_parser():
         "--loss_type",
         dest="loss_type",
         type=str,
-        choices=["motor", "tpp","mtpp","mtpp_shared","ntp"],
+        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp"],
         default="motor",
         required=True,
     )
@@ -277,8 +278,8 @@ def main():
     # import femr.models.tasks as _tasks_mod
     # _tasks_mod.MOTORTask = _MOTORImpl
 
-    model_type = args.loss_type.split("_")[0]
-    task_path = pretraining_data / f'{model_type}_task.pkl'
+    task_loss_type = "mtpp" if args.loss_type == "mtpp_shared" else args.loss_type
+    task_path = pretraining_data / f'{task_loss_type}_task.pkl'
     with open(task_path, 'rb') as f:
         task = pickle.load(f)
     # print(f"{args.loss_type} task: {task}")
