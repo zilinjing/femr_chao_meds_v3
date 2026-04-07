@@ -261,18 +261,19 @@ Evaluates binary classification tasks (e.g., predicting patient outcomes).
 bash run.sh \
   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
   --num_proc           32 \
-  --model_path         /shared/share_mala/zj2398/models/mtpp_8k/mtpp_all_shared_6100_bin_5/mamba_2e-4_5.0_cosine/best_56076 \
-  --model_name         mamba_mtpp \
+  --model_path         /shared/share_mala/zj2398/models/ntp_8k/transformer/best-269840 \
+  --model_name         transformer_ntp \
   --tokens_per_batch   65536 \
   --device             cuda:0 \
-  --use_ntp            no \
+  --use_ntp            yes \
   --cohort_type        outcome \
   --cache_path           /shared/share_mala/zj2398/huggingface/datasets \
   --min_subjects_per_batch 8 \
-  --ontology_path       /user/zj2398/cache/mtpp_8k/ontology.pkl \
-  --main_split_path     /user/zj2398/cache/mtpp_8k/main_split.csv \
+  --ontology_path       /user/zj2398/cache/ntp/ontology.pkl \
+  --main_split_path     /user/zj2398/cache/ntp/main_split.csv \
   --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/
+  
 # /shared/share_mala/zj2398/models/tpp_8k/mamba_2e-4_5.0/best_75368
 # cumc
 bash run.sh \
@@ -306,7 +307,7 @@ Evaluates phenotype classification and survival analysis (time-to-event) tasks.
 **Example Usage**
 
 ```bash
-# export CUDA_VISIBLE_DEVICES=2
+
 # export CUDA_VISIBLE_DEVICES=1
 # mimic
 bash run.sh \
@@ -386,18 +387,18 @@ Evaluates continuous value prediction tasks (e.g., predicting lab values).
 bash run_regression.sh \
   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
   --num_proc           24 \
-  --model_path         /shared/share_mala/zj2398/models/tpp_8k/transformer/best_221573 \
-  --model_name         transformer-unmark \
+  --model_path         /shared/share_mala/zj2398/models/ntp_8k/transformer/best-269840 \
+  --model_name         transformer_ntp \
   --tokens_per_batch   65536 \
   --device             cuda:0 \
   --min_subjects_per_batch 8 \
-  --ontology_path      /user/zj2398/cache/mtpp_8k/ontology.pkl \
-  --main_split_path    /user/zj2398/cache/mtpp_8k/main_split.csv \
+  --ontology_path      /user/zj2398/cache/ntp/ontology.pkl \
+  --main_split_path    /user/zj2398/cache/ntp/main_split.csv \
   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
-  --use_ntp no \
+  --use_ntp yes \
   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
-  --tasks "bilirubin,creatinine" \
+  --tasks "glucose" \
   --regression 
 
   # pao2,platelets

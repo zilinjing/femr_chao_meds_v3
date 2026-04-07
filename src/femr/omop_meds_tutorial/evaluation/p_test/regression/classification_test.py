@@ -13,23 +13,23 @@ SEED = 42
 N_JOBS = 32  # number of parallel workers
 
 
-def check_labels(mtpp, llama, motor):
+def check_labels(mtpp, ntp, motor):
     """Assert all three DataFrames have identical subject_id, prediction_time, boolean_value."""
     for col in ["subject_id", "prediction_time", "boolean_value"]:
-        assert col in mtpp.columns and col in llama.columns and col in motor.columns, \
+        assert col in mtpp.columns and col in ntp.columns and col in motor.columns, \
             f"Column '{col}' missing in one of the DataFrames"
-    assert len(mtpp) == len(llama) == len(motor), \
-        f"Length mismatch: mtpp={len(mtpp)}, llama={len(llama)}, motor={len(motor)}"
-    assert (mtpp["subject_id"].values == llama["subject_id"].values).all(), \
-        "subject_id mismatch between mtpp and llama"
+    assert len(mtpp) == len(ntp) == len(motor), \
+        f"Length mismatch: mtpp={len(mtpp)}, ntp={len(ntp)}, motor={len(motor)}"
+    assert (mtpp["subject_id"].values == ntp["subject_id"].values).all(), \
+        "subject_id mismatch between mtpp and ntp"
     assert (mtpp["subject_id"].values == motor["subject_id"].values).all(), \
         "subject_id mismatch between mtpp and motor"
-    assert (mtpp["prediction_time"].values == llama["prediction_time"].values).all(), \
-        "prediction_time mismatch between mtpp and llama"
+    assert (mtpp["prediction_time"].values == ntp["prediction_time"].values).all(), \
+        "prediction_time mismatch between mtpp and ntp"
     assert (mtpp["prediction_time"].values == motor["prediction_time"].values).all(), \
         "prediction_time mismatch between mtpp and motor"
-    assert (mtpp["boolean_value"].values == llama["boolean_value"].values).all(), \
-        "boolean_value mismatch between mtpp and llama"
+    assert (mtpp["boolean_value"].values == ntp["boolean_value"].values).all(), \
+        "boolean_value mismatch between mtpp and ntp"
     assert (mtpp["boolean_value"].values == motor["boolean_value"].values).all(), \
         "boolean_value mismatch between mtpp and motor"
     print(f"  ✓ Labels consistent across all 3 models (n={len(mtpp)})")
@@ -70,38 +70,38 @@ results = []
 for task in task_list:
     print(f"\n{'='*60}\nTask: {task}\n{'='*60}")
     if task in ["in_hospital_mortality", "long_los","readmission"]:
-        llama = pd.read_parquet(outcome_base  / task / "cc-llama/llama.parquet") \
+        ntp = pd.read_parquet(outcome_base  / task / "transformer_ntp/test_predictions/predictions.parquet") \
             .sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
         motor = pd.read_parquet(outcome_base  / task / "motor/test_predictions/predictions.parquet") \
             .sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
         mtpp = pd.read_parquet(outcome_base  / task / "transformer_mtpp/test_predictions/predictions.parquet") \
             .sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
     else:
-        llama = pd.read_parquet(phenotype_base  / task / "cc-llama/llama.parquet") \
+        ntp = pd.read_parquet(phenotype_base  / task / "transformer_ntp_730/test_predictions/predictions.parquet") \
             .sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
         motor = pd.read_parquet(phenotype_base / task / "motor_730/test_predictions/predictions.parquet") \
             .sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
         mtpp = pd.read_parquet(phenotype_base  / task / "transformer_mtpp_730/test_predictions/predictions.parquet") \
             .sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
 
-    check_labels(mtpp, llama, motor)
+    check_labels(mtpp, ntp, motor)
 
     labels = mtpp["boolean_value"].values.astype(int)
     mtpp_preds = mtpp["predicted_boolean_probability"].values  # adjust column name if needed
-    llama_preds = llama["predicted_boolean_probability"].values
+    ntp_preds = ntp["predicted_boolean_probability"].values
     motor_preds = motor["predicted_boolean_probability"].values
 
     # Point AUROCs
     auc_mtpp = roc_auc_score(labels, mtpp_preds)
-    auc_llama = roc_auc_score(labels, llama_preds)
+    auc_ntp = roc_auc_score(labels, ntp_preds)
     auc_motor = roc_auc_score(labels, motor_preds)
-    print(f"  AUROC — mtpp: {auc_mtpp:.4f}, llama: {auc_llama:.4f}, motor: {auc_motor:.4f}")
+    print(f"  AUROC — mtpp: {auc_mtpp:.4f}, ntp: {auc_ntp:.4f}, motor: {auc_motor:.4f}")
 
-    # MTPP vs LLaMA
-    diff, ci_lo, ci_hi, p = bootstrap_auroc_test(labels, mtpp_preds, llama_preds)
+    # MTPP vs ntp
+    diff, ci_lo, ci_hi, p = bootstrap_auroc_test(labels, mtpp_preds, ntp_preds)
     sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
-    print(f"  MTPP vs LLaMA: Δ={diff:+.4f}, 95% CI=[{ci_lo:+.4f}, {ci_hi:+.4f}], p={p:.4f} {sig}")
-    results.append(dict(task=task, comparison="mtpp_vs_llama", diff=diff, ci_lo=ci_lo, ci_hi=ci_hi, p=p))
+    print(f"  MTPP vs ntp: Δ={diff:+.4f}, 95% CI=[{ci_lo:+.4f}, {ci_hi:+.4f}], p={p:.4f} {sig}")
+    results.append(dict(task=task, comparison="mtpp_vs_ntp", diff=diff, ci_lo=ci_lo, ci_hi=ci_hi, p=p))
 
     # MTPP vs MOTOR
     diff, ci_lo, ci_hi, p = bootstrap_auroc_test(labels, mtpp_preds, motor_preds)
@@ -121,7 +121,7 @@ task_display = {
     "masld": "MASLD",
     "stroke": "Stroke",
 }
-baseline_display = {"mtpp_vs_llama": "LLaMA", "mtpp_vs_motor": "MOTOR"}
+baseline_display = {"mtpp_vs_ntp": "ntp", "mtpp_vs_motor": "MOTOR"}
 
 cols = " & ".join(task_display[t] for t in task_list)
 header = f"Method & {cols} \\\\"

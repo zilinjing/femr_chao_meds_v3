@@ -13,6 +13,8 @@ parser.add_argument("--n_jobs", type=int, default=16,
                     help="Number of CPU cores for XGBoost (-1 = all)")
 args = parser.parse_args()
 
+def remove_duplicates(data: pd.DataFrame, labels: pd.DataFrame):
+    return data[~data.index.duplicated(keep="last")], labels[~labels.index.duplicated(keep="last")]
 
 def load_features_labels(feature_path, label_path, split_path):
     data = pickle.load(open(feature_path, "rb"))

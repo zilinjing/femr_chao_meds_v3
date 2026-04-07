@@ -12,22 +12,22 @@ SEED = 42
 N_JOBS = 32  # number of parallel workers
 
 
-def check_labels(mtpp, llama, motor):
+def check_labels(mtpp, ntp, motor):
     """Assert all three DataFrames have identical subject_id, prediction_time, y_true."""
     for col in ["subject_id", "prediction_time", "y_true"]:
-        assert col in mtpp.columns and col in llama.columns and col in motor.columns, \
+        assert col in mtpp.columns and col in ntp.columns and col in motor.columns, \
             f"Column '{col}' missing in one of the DataFrames"
-    assert len(mtpp) == len(llama) == len(motor), \
-        f"Length mismatch: mtpp={len(mtpp)}, llama={len(llama)}, motor={len(motor)}"
-    assert (mtpp["subject_id"].values == llama["subject_id"].values).all(), \
-        "subject_id mismatch between mtpp and llama"
+    assert len(mtpp) == len(ntp) == len(motor), \
+        f"Length mismatch: mtpp={len(mtpp)}, ntp={len(ntp)}, motor={len(motor)}"
+    assert (mtpp["subject_id"].values == ntp["subject_id"].values).all(), \
+        "subject_id mismatch between mtpp and ntp"
     assert (mtpp["subject_id"].values == motor["subject_id"].values).all(), \
         "subject_id mismatch between mtpp and motor"
-    assert (mtpp["prediction_time"].values == llama["prediction_time"].values).all(), \
-        "prediction_time mismatch between mtpp and llama"
+    assert (mtpp["prediction_time"].values == ntp["prediction_time"].values).all(), \
+        "prediction_time mismatch between mtpp and ntp"
     assert (mtpp["prediction_time"].values == motor["prediction_time"].values).all(), \
         "prediction_time mismatch between mtpp and motor"
-    # for name, other in [("llama", llama), ("motor", motor)]:
+    # for name, other in [("ntp", ntp), ("motor", motor)]:
     for name, other in [("motor", motor)]:
         diff = np.abs(mtpp["y_true"].values - other["y_true"].values)
         max_diff = np.max(diff)
@@ -81,28 +81,28 @@ def bootstrap_r2_test(labels, preds_a, preds_b, n_bootstrap=N_BOOTSTRAP, seed=SE
 results = []
 
 for task in task_list:
-    llama = pd.read_parquet(regression_base/"cc_llama/results"/task/"cc_llama"/"test_predictions.parquet").sort_values(["subject_id", "prediction_time"], ascending=[True, True])
+    ntp = pd.read_parquet(regression_base/"transformer_ntp/results"/task/"transformer_ntp"/"test_predictions_50k.parquet").sort_values(["subject_id", "prediction_time"], ascending=[True, True])
     motor = pd.read_parquet(regression_base/"motor/results"/task/"motor"/"test_predictions_50k.parquet").sort_values(["subject_id", "prediction_time"], ascending=[True, True])
     mtpp = pd.read_parquet(regression_base/"transformer_mtpp/results"/task/"transformer_mtpp"/"test_predictions_50k.parquet").sort_values(["subject_id", "prediction_time"], ascending=[True, True])
 
-    check_labels(mtpp, llama, motor)
+    check_labels(mtpp, ntp, motor)
 
     labels = mtpp["y_true"].values
     mtpp_preds = mtpp["y_pred"].values
-    llama_preds = llama["y_pred"].values
+    ntp_preds = ntp["y_pred"].values
     motor_preds = motor["y_pred"].values
 
     # Point R² scores
     r2_mtpp = r2_score(labels, mtpp_preds)
-    r2_llama = r2_score(labels, llama_preds)
+    r2_ntp = r2_score(labels, ntp_preds)
     r2_motor = r2_score(labels, motor_preds)
-    print(f"  R² — mtpp: {r2_mtpp:.4f}, llama: {r2_llama:.4f}, motor: {r2_motor:.4f}")
+    print(f"  R² — mtpp: {r2_mtpp:.4f}, ntp: {r2_ntp:.4f}, motor: {r2_motor:.4f}")
 
-    # MTPP vs LLaMA
-    diff, ci_lo, ci_hi, p = bootstrap_r2_test(labels, mtpp_preds, llama_preds)
+    # MTPP vs ntp
+    diff, ci_lo, ci_hi, p = bootstrap_r2_test(labels, mtpp_preds, ntp_preds)
     sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
-    print(f"  MTPP vs LLaMA: Δ={diff:+.4f}, 95% CI=[{ci_lo:+.4f}, {ci_hi:+.4f}], p={p:.4f} {sig}")
-    results.append(dict(task=task, comparison="mtpp_vs_llama", diff=diff, ci_lo=ci_lo, ci_hi=ci_hi, p=p))
+    print(f"  MTPP vs ntp: Δ={diff:+.4f}, 95% CI=[{ci_lo:+.4f}, {ci_hi:+.4f}], p={p:.4f} {sig}")
+    results.append(dict(task=task, comparison="mtpp_vs_ntp", diff=diff, ci_lo=ci_lo, ci_hi=ci_hi, p=p))
 
     # MTPP vs MOTOR
     diff, ci_lo, ci_hi, p = bootstrap_r2_test(labels, mtpp_preds, motor_preds)
@@ -120,7 +120,7 @@ task_display = {
     "pao2": "PaO2",
     "glucose": "Glucose",
 }
-baseline_display = {"mtpp_vs_llama": "LLaMA", "mtpp_vs_motor": "MOTOR"}
+baseline_display = {"mtpp_vs_ntp": "ntp", "mtpp_vs_motor": "MOTOR"}
 
 cols = " & ".join(task_display[t] for t in task_list)
 header = f"Method & {cols} \\\\"
