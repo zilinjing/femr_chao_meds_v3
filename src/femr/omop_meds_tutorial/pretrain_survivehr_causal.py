@@ -8,6 +8,7 @@ import datasets
 import transformers
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
+from transformers.trainer_utils import get_last_checkpoint
 
 import femr.models.config
 from femr.models.architecture.embedding_survivehr import FEMRModel
@@ -23,6 +24,7 @@ def create_arg_parser():
     parser.add_argument("--output_dir", required=True, type=str)
     parser.add_argument("--model", choices=["transformer", "mamba"], required=True)
     parser.add_argument("--checkpoint_dir", type=str, default=None)
+    parser.add_argument("--auto_resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--hf_run_name", type=str, default="survivehr_causal")
@@ -33,13 +35,39 @@ def create_arg_parser():
     parser.add_argument("--dataloader_num_workers", type=int, default=16)
     parser.add_argument("--save_total_limit", type=int, default=3)
     parser.add_argument("--report_to", type=str, default="none")
-    parser.add_argument("--bf16", action="store_true")
+    # parser.add_argument("--bf16", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ddp_find_unused_parameters", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--max_steps", type=int, default=-1)
     return parser
 
 
 def count_parameters(model) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def resolve_resume_checkpoint(output_dir: pathlib.Path, checkpoint_dir: str | None, auto_resume: bool) -> str | None:
+    if checkpoint_dir is not None:
+        checkpoint_path = pathlib.Path(checkpoint_dir).expanduser().resolve()
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint path does not exist: {checkpoint_path}")
+
+        if checkpoint_path.name.startswith("checkpoint-"):
+            return str(checkpoint_path)
+
+        latest_checkpoint = get_last_checkpoint(str(checkpoint_path))
+        if latest_checkpoint is None:
+            raise FileNotFoundError(
+                f"No Hugging Face trainer checkpoints found under {checkpoint_path}. "
+                "Pass a specific checkpoint-* directory or a run directory containing checkpoints."
+            )
+        return latest_checkpoint
+
+    if auto_resume:
+        latest_checkpoint = get_last_checkpoint(str(output_dir))
+        if latest_checkpoint is not None:
+            return latest_checkpoint
+
+    return None
 
 
 def build_model_config(args, tokenizer, task):
@@ -122,6 +150,7 @@ def main():
 
     config = build_model_config(args, tokenizer, task)
     model = FEMRModel(config, loss_type="survivehr_causal")
+    resume_checkpoint = resolve_resume_checkpoint(output_dir, args.checkpoint_dir, args.auto_resume)
 
     trainer_args = transformers.TrainingArguments(
         per_device_train_batch_size=args.per_device_train_batch_size,
@@ -129,7 +158,7 @@ def main():
         learning_rate=args.learning_rate,
         output_dir=str(output_dir),
         remove_unused_columns=False,
-        bf16=args.bf16,
+        bf16=True,
         weight_decay=0.05,
         adam_beta2=0.95,
         report_to=args.report_to,
@@ -137,7 +166,9 @@ def main():
         run_name=args.hf_run_name,
         num_train_epochs=args.n_epochs,
         max_steps=args.max_steps,
-        ddp_find_unused_parameters=False,
+        # The SurvivEHR value heads are only activated for risk IDs present in the local batch.
+        # In DDP that means some ranks legitimately skip gradients for many head parameters.
+        ddp_find_unused_parameters=args.ddp_find_unused_parameters,
         warmup_steps=1000,
         logging_strategy="epoch",
         save_strategy="epoch",
@@ -160,7 +191,11 @@ def main():
 
     print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
     print(f"Model param count: {count_parameters(model)}")
-    train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
+    if resume_checkpoint is not None:
+        print(f"Resuming training from checkpoint: {resume_checkpoint}")
+    else:
+        print("Starting training from scratch")
+    train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
     trainer.log_metrics("train", train_result.metrics)
     trainer.save_metrics("train", train_result.metrics)
     trainer.save_state()
@@ -174,3 +209,33 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+'''
+  PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src 
+  accelerate launch \
+  --num_processes 4 \
+  pretrain_survivehr_causal.py \
+    --pretraining_data /user/zj2398/cache/mtpp_8k_survivehr \
+    --output_dir /user/zj2398/cache/mtpp_8k_survivehr/survivehr_causal_transformer \
+    --model transformer \
+    --learning_rate 1e-5 \
+    --n_epochs 20 \
+    --report_to wandb \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 1 \
+    --dataloader_num_workers 32 \
+    --hf_run_name survivehr_causal_transformer 
+
+  accelerate launch \
+  --num_processes 4 \
+  pretrain_survivehr_causal.py \
+    --pretraining_data /user/zj2398/cache/mtpp_8k_survivehr \
+    --output_dir /user/zj2398/cache/mtpp_8k_survivehr/survivehr_causal_transformer \
+    --model transformer \
+    --learning_rate 1e-5 \
+    --n_epochs 20 \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 1 \
+    --dataloader_num_workers 32 \
+    --hf_run_name survivehr_causal_transformer 
+'''

@@ -266,8 +266,8 @@ def main():
 
         weight_decay=0.05,
         adam_beta2=0.95,
-        # report_to="none",
-        report_to=["wandb"],
+        report_to="none",
+        # xxx
         max_grad_norm=args.max_grad_norm,
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
@@ -321,7 +321,7 @@ if __name__ == "__main__":
 
 '''
 
-export CUDA_VISIBLE_DEVICES=2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=2,3,4,5
 
 kuvira
 

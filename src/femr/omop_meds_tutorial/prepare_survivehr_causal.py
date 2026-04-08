@@ -159,7 +159,9 @@ if __name__ == "__main__":
   Train:
 
   PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src 
-  python -m femr.omop_meds_tutorial.pretrain_survivehr_causal \
+  accelerate launch \
+  --num_processes 4 \
+  pretrain_survivehr_causal.py \
     --pretraining_data /user/zj2398/cache/mtpp_8k_survivehr \
     --output_dir /user/zj2398/cache/mtpp_8k_survivehr/survivehr_causal_transformer \
     --model transformer \
@@ -167,8 +169,9 @@ if __name__ == "__main__":
     --n_epochs 20 \
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
-    --dataloader_num_workers 16 \
-    --hf_run_name survivehr_causal_transformer \
-    --bf16
-export CUDA_VISIBLE_DEVICES=0,1
+    --dataloader_num_workers 32 \
+    --hf_run_name survivehr_causal_transformer 
+
+
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
 '''
