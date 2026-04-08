@@ -3,6 +3,8 @@ import transformers
 import pathlib
 import torch
 import sys
+import time
+import json
 import femr.models.architecture.transformer
 import femr.models.architecture.embedding
 import pickle
@@ -14,13 +16,16 @@ from omegaconf import OmegaConf
 from femr.omop_meds_tutorial.evaluation.generate_labels import create_omop_meds_tutorial_arg_parser
 import torch.nn as nn
 from transformers import TrainerCallback
+from torch.profiler import ProfilerActivity, profile
 import wandb
 import datasets
+from tqdm import tqdm
 datasets.disable_caching()
 
 from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
 from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
+from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
 
 class CustomEarlyStoppingCallback(transformers.EarlyStoppingCallback):
     def check_metric_value(self, args, state, control, metric_value):
@@ -107,7 +112,7 @@ def create_arg_parser():
         "--loss_type",
         dest="loss_type",
         type=str,
-        choices=["motor", "tpp","mtpp","mtpp_shared","ntp"],
+        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp"],
         default="motor",
         required=True,
     )
@@ -116,6 +121,19 @@ def create_arg_parser():
         dest="linear_interpolation",
         type=bool,
         default=False
+    )
+    arg_parser.add_argument(
+        "--profile_steps",
+        dest="profile_steps",
+        type=int,
+        default=100
+    )
+    arg_parser.add_argument(
+        "--max_steps",
+        dest="max_steps",
+        type=int,
+        default=-1,
+        help="Stop after this many steps. Use for profiling-only runs (e.g., 1100 for 500+500). -1 = use n_epochs."
     )
     return arg_parser
 
@@ -150,6 +168,92 @@ class WandbTrainLossCallback(transformers.TrainerCallback):
         wandb.log(log_data)
 
 
+class ProfilingTrainer(transformers.Trainer):
+    """Trainer that estimates per-epoch FLOPs and wall time from a small sample.
+
+    Phase 1 (first N_PROFILE steps): profiler ON  -> FLOPs per token.
+    Phase 2 (next N_TIME steps):     profiler OFF -> clean wall time per token.
+    Phase 3 (all remaining steps):   no overhead  -> normal training.
+
+    Uses per-token normalization so variable-length batches don't add noise.
+    Set trainer.total_epoch_tokens before calling train().
+    """
+
+    N_PROFILE = 200   # steps to profile for FLOPs
+    N_TIME = 200      # steps to time without profiler
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.total_epoch_tokens = 0            # set before train()
+        self.profiled_total_flops = 0          # sum of FLOPs across profiled steps
+        self.profiled_total_tokens = 0         # sum of tokens across profiled steps
+        self.timed_total_seconds = 0.0         # sum of wall time across timed steps
+        self.timed_total_tokens = 0            # sum of tokens across timed steps
+        self._sample_step_count = 0
+
+    def _get_num_tokens(self, inputs):
+        """Extract total token count from a batch."""
+        sl = inputs["batch"]["transformer"]["subject_lengths"]
+        if isinstance(sl, torch.Tensor):
+            return sl.sum().item()
+        return int(np.sum(sl))
+
+    def training_step(self, model, inputs, *args, **kwargs):
+        step = self._sample_step_count
+        self._sample_step_count += 1
+        use_cuda = self.args.device.type == 'cuda'
+
+        if step < self.N_PROFILE:
+            # Phase 1: profile for FLOPs (overhead accepted on these steps)
+            num_tokens = self._get_num_tokens(inputs)
+            activities = [ProfilerActivity.CPU]
+            if use_cuda:
+                activities.append(ProfilerActivity.CUDA)
+
+            with profile(activities=activities, with_flops=True) as prof:
+                loss = super().training_step(model, inputs, *args, **kwargs)
+
+            step_flops = sum(
+                evt.flops for evt in prof.key_averages()
+                if evt.flops is not None and evt.flops > 0
+            )
+            self.profiled_total_flops += step_flops
+            self.profiled_total_tokens += num_tokens
+            return loss
+
+        elif step < self.N_PROFILE + self.N_TIME:
+            # Phase 2: clean wall time (no profiler)
+            num_tokens = self._get_num_tokens(inputs)
+            if use_cuda:
+                torch.cuda.synchronize()
+            t0 = time.perf_counter()
+
+            loss = super().training_step(model, inputs, *args, **kwargs)
+
+            if use_cuda:
+                torch.cuda.synchronize()
+            t1 = time.perf_counter()
+            self.timed_total_seconds += (t1 - t0)
+            self.timed_total_tokens += num_tokens
+
+            if step == self.N_PROFILE + self.N_TIME - 1:
+                fpt = self.profiled_total_flops / self.profiled_total_tokens
+                tpt = self.timed_total_seconds / self.timed_total_tokens
+                est_flops = fpt * self.total_epoch_tokens
+                # Wall-clock time: GPUs work in parallel in DDP
+                world_size = self.args.world_size if hasattr(self.args, 'world_size') else 1
+                est_time = tpt * self.total_epoch_tokens / world_size
+                print(f"\n[Profiling complete after {self.N_PROFILE}+{self.N_TIME} steps]")
+                print(f"  FLOPs/token (ratio of sums): {fpt:.2e}")
+                print(f"  time/token  (ratio of sums): {tpt:.4e}s")
+                print(f"  estimated epoch FLOPs:       {est_flops:.4e} ({est_flops/1e12:.2f} TFLOPs)")
+                print(f"  estimated epoch walltime:    {est_time:.1f}s ({est_time/3600:.2f}h)")
+            return loss
+
+        # Phase 3: normal training, zero overhead
+        return super().training_step(model, inputs, *args, **kwargs)
+
+
 def main():
     args = create_arg_parser().parse_args()
     pretraining_data = pathlib.Path(args.pretraining_data)
@@ -174,8 +278,8 @@ def main():
     # import femr.models.tasks as _tasks_mod
     # _tasks_mod.MOTORTask = _MOTORImpl
 
-    model_type = args.loss_type.split("_")[0]
-    task_path = pretraining_data / f'{model_type}_task.pkl'
+    task_loss_type = "mtpp" if args.loss_type == "mtpp_shared" else args.loss_type
+    task_path = pretraining_data / f'{task_loss_type}_task.pkl'
     with open(task_path, 'rb') as f:
         task = pickle.load(f)
     # print(f"{args.loss_type} task: {task}")
@@ -192,6 +296,18 @@ def main():
 
     train_batches = datasets.Dataset.load_from_disk(str(train_batches_path))
     val_batches = datasets.Dataset.load_from_disk(str(val_batches_path))
+
+    # Count total tokens for FLOPs/time extrapolation (parallelized across 32 processes)
+    print("Counting total tokens across training set...")
+    n_steps = len(train_batches)
+    token_counts = train_batches.map(
+        lambda batch: {"_n_tokens": [int(torch.sum(batch["transformer"]["subject_lengths"]))]},
+        num_proc=64,
+        remove_columns=train_batches.column_names,
+        desc="Counting tokens",
+    )
+    total_epoch_tokens = sum(int(x) for x in token_counts["_n_tokens"])
+    print(f"Total tokens per epoch: {total_epoch_tokens:,} across {n_steps} steps")
 
     # Use Hydra to load model hyperparameters and keep tokenizer-derived fields runtime-bound
     conf_dir = pathlib.Path(__file__).parent / "conf"
@@ -251,6 +367,10 @@ def main():
     # output_dir = 'tmp_trainer_' + sys.argv[1]
     output_dir = args.output_dir
     # print(args.per_device_train_batch_size)
+    # When max_steps is set, this is a profiling-only run: disable epoch-based
+    # eval/save/early-stopping since we won't complete a full epoch.
+    profile_only = args.max_steps > 0
+
     trainer_config = transformers.TrainingArguments(
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
@@ -264,21 +384,22 @@ def main():
         weight_decay=0.05,
         adam_beta2=0.95,
         report_to="none",
-        # report_to=["wandb"],
+        # report_to="none" if profile_only else ["wandb"],
         max_grad_norm=args.max_grad_norm,
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
+        max_steps=args.max_steps,
         ddp_find_unused_parameters=False,
 
         warmup_steps=1000,
 
-        logging_strategy='epoch',
+        logging_strategy='steps' if profile_only else 'epoch',
         # logging_strategy='steps',
         logging_steps=10,
 
-        save_strategy='epoch',
-        eval_strategy='epoch',
+        save_strategy='no' if profile_only else 'epoch',
+        eval_strategy='no' if profile_only else 'epoch',
         # evaluation_strategy='epoch',
 
         # prediction_loss_only=True,
@@ -286,26 +407,69 @@ def main():
         dataloader_num_workers=40,
 
         save_total_limit=10,
-        load_best_model_at_end=True,
+        load_best_model_at_end=not profile_only,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
     )
     print(f"CONFIRMATION: The actual per_device_train_batch_size is {trainer_config.per_device_train_batch_size}")
+    if profile_only:
+        print(f"PROFILE-ONLY MODE: will stop after {args.max_steps} steps")
 
-
-    trainer = transformers.Trainer(
+    callbacks = [] if profile_only else [CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)]
+    trainer = ProfilingTrainer(
         model=model,
         data_collator=processor.collate,
         train_dataset=train_batches,
         eval_dataset=val_batches,
         args=trainer_config,
-        callbacks=[CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)],
+        callbacks=callbacks,
     )
+    trainer.total_epoch_tokens = total_epoch_tokens
 
     train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
-    trainer.log_metrics("train", train_result.metrics)
-    trainer.save_metrics("train", train_result.metrics)
-    trainer.save_state()
+    if not profile_only:
+        trainer.log_metrics("train", train_result.metrics)
+        trainer.save_metrics("train", train_result.metrics)
+        trainer.save_state()
+
+    # Save FLOPs and time metrics (extrapolated via ratio-of-sums: sum(FLOPs)/sum(tokens))
+    profiled_steps = trainer._sample_step_count if trainer._sample_step_count <= ProfilingTrainer.N_PROFILE else ProfilingTrainer.N_PROFILE
+    timed_steps = max(0, trainer._sample_step_count - ProfilingTrainer.N_PROFILE)
+    timed_steps = min(timed_steps, ProfilingTrainer.N_TIME)
+    if profiled_steps < ProfilingTrainer.N_PROFILE:
+        print(f"WARNING: Only {profiled_steps}/{ProfilingTrainer.N_PROFILE} FLOPs steps completed. "
+              f"Increase --max_steps to >= {ProfilingTrainer.N_PROFILE + ProfilingTrainer.N_TIME}.")
+    if timed_steps == 0 and profiled_steps >= ProfilingTrainer.N_PROFILE:
+        print(f"WARNING: No timing steps completed. FLOPs are available but time estimate is not. "
+              f"Increase --max_steps to >= {ProfilingTrainer.N_PROFILE + ProfilingTrainer.N_TIME}.")
+    fpt = trainer.profiled_total_flops / trainer.profiled_total_tokens if trainer.profiled_total_tokens > 0 else 0
+    tpt = trainer.timed_total_seconds / trainer.timed_total_tokens if trainer.timed_total_tokens > 0 else 0
+    per_epoch_flops = fpt * total_epoch_tokens
+    world_size = trainer.args.world_size if hasattr(trainer.args, 'world_size') else 1
+    per_epoch_time = tpt * total_epoch_tokens / world_size
+    training_metrics = {
+        "per_epoch_flops": per_epoch_flops,
+        "per_epoch_time_seconds": per_epoch_time,
+        "total_epoch_tokens": total_epoch_tokens,
+        "steps_per_epoch": n_steps,
+        "world_size": world_size,
+        "n_profiled_steps": profiled_steps,
+        "n_timed_steps": timed_steps,
+        "profiled_total_flops": trainer.profiled_total_flops,
+        "profiled_total_tokens": trainer.profiled_total_tokens,
+        "timed_total_seconds": trainer.timed_total_seconds,
+        "timed_total_tokens": trainer.timed_total_tokens,
+        "flops_per_token": fpt,
+        "time_per_token_seconds": tpt,
+        "n_epochs_run": args.n_epochs,
+    }
+    metrics_path = pathlib.Path(output_dir) / "training_flops_time.json"
+    with open(metrics_path, "w") as f:
+        json.dump(training_metrics, f, indent=2)
+    print(f"Training FLOPs/time metrics saved to {metrics_path}")
+    print(f"  per_epoch_flops: {per_epoch_flops:.4e} ({per_epoch_flops / 1e12:.4f} TFLOPs)")
+    print(f"  per_epoch_time:  {per_epoch_time:.2f}s ({per_epoch_time/3600:.2f}h)")
+    print(f"  total_epoch_tokens: {total_epoch_tokens:,}")
 
 
 if __name__ == "__main__":
@@ -365,6 +529,22 @@ accelerate launch \
 
 mimic 
 gsb
+
+export CUDA_VISIBLE_DEVICES=3,4,5,6,7
+
+accelerate launch \
+  --num_processes 5 \
+  pretrain.py \
+  --pretraining_data /user/zj2398/cache/mtpp_8k_T_16_V_5 \
+  --checkpoint_dir /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer/checkpoint-64392 \
+  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer \
+  --model transformer \
+  --hf_run_name mimic_transformer_mtpp_6100_T_16_V_5_continue \
+  --loss_type mtpp_shared 
+
+#bash run_mimic_new.sh 16 10 /user/zj2398/cache/mtpp_8k_T_16_V_5
 
 CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch \
   --num_processes 4 \

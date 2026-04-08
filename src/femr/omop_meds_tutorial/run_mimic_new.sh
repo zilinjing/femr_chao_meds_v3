@@ -35,7 +35,7 @@ python prepare.py \
   --ontology_path  $ONTOLOGY_PATH \
   --time_bins $TIME_BINS \
   --value_bins $VALUE_BINS \
-  --loss_type mtpp \
+  --loss_type mtpp_value \
   --num_final_tasks 6100 \
   --num_threads 32 \
   --hf_cache_path /data2/huggingface/zj2398 \
@@ -49,16 +49,16 @@ python prepare.py \
 # multi-gpu pretraining
 # export CUDA_VISIBLE_DEVICES=1
 
-# accelerate launch \
-#   --num_processes 4 \
-#   pretrain.py \
-#   --pretraining_data /user/zj2398/cache/mtpp_all_shared_6100_bin_5 \
-#   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-#   --per_device_train_batch_size 1 \
-#   --output_dir /user/zj2398/cache/mtpp_all_shared_6100_bin_5/mamba \
-#   --model mamba \
-#   --hf_run_name mimic_mamba_mtpp_shared_6100_bin_5 \
-#   --loss_type mtpp_shared
+accelerate launch \
+  --num_processes 4 \
+  pretrain.py \
+  --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5 \
+  --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer \
+  --model transformer \
+  --hf_run_name mimic_transformer_mtpp_value_only_6100_T_8_V_5 \
+  --loss_type mtpp_value
 
 # accelerate launch \
 #   --num_processes 3 \
@@ -74,15 +74,6 @@ python prepare.py \
 #   --loss_type mtpp_shared 
 
 
-#bash run_mimic_new.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/ontology.pkl
+# bash run_mimic_new.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl
 
-# python pretrain.py \
-#   --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5 \
-#   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-#   --per_device_train_batch_size 1 \
-#   --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer \
-#   --model transformer \
-#   --max_steps 450 \
-#   --n_epochs 1 \
-#   --hf_run_name mimic_transformer_mtpp_6100_T_8_V_5_test \
-#   --loss_type mtpp_shared 
+

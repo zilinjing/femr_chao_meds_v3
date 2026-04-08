@@ -12,6 +12,7 @@ import numpy as np
 import scipy.sparse
 import torch
 import warnings
+import pickle as pl
 
 import femr.models.config
 import femr.models.tokenizer
@@ -241,6 +242,12 @@ class MTPPValue_Task(Task):
         # First pass: keep only numerical tasks with observed values.
         numerical_tasks_info = []  # List of (index, task, task_stats, rate, value_sample_count)
 
+        full_task_path = "/data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/mtpp_task.pkl"
+        with open(full_task_path,"rb") as f:
+            mtpp_task = pl.load(f)
+        full_codes = set(mtpp_task.numerical_task_to_index_map.keys())
+        print(f"it should have {len(full_codes)} codes")
+
         for i, (task, task_stats) in enumerate(zip(tasks, stats)):
             frac_events = task_stats[1] / (task_stats[0] + task_stats[1])
             rate = frac_events / task_stats[2].mean()
@@ -254,9 +261,11 @@ class MTPPValue_Task(Task):
             
             if value_sample_count > 0:
                 # Numerical task - stricter filtering
-                if frac_events < 1 / 1000 or value_sample_count < value_count_threshold:
-                    print(f"Filtered out numerical task {task}: frac_events={frac_events}, "
-                        f"value_count={value_sample_count}")
+                # if frac_events < 1 / 1000 or value_sample_count < value_count_threshold:
+                #     print(f"Filtered out numerical task {task}: frac_events={frac_events}, "
+                #         f"value_count={value_sample_count}")
+                #     continue
+                if task not in full_codes:
                     continue
                 numerical_tasks_info.append((i, task, task_stats, rate, value_sample_count))
 
