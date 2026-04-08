@@ -214,22 +214,26 @@ echo "All selected tasks processed."
 #export CUDA_VISIBLE_DEVICES=2
 # bilirubin,creatinine,pao2,platelets
 
+#platelets, glucose
+
 # bash run_regression.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-#   --num_proc           32 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/best_159744 \
-#   --model_name         mtpp \
+#   --num_proc           24 \
+#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer/best_100570 \
+#   --model_name         transformer_numerical_only \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path      /data/models/zj2398/femr/mimic_motor_8k/ontology.pkl \
-#   --main_split_path    /data/models/zj2398/femr/mimic_motor_8k/main_split.csv \
+#   --ontology_path      /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl \
+#   --main_split_path    /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/main_split.csv \
 #   --cohort_dir   /data2/processed_datasets/mimic/regression/icu_stay_4h_100k/ \
 #   --output_dir   /data/results/zj2398/femr/mimic/regression \
 #   --use_ntp no \
 #   --cache_path /data2/huggingface/zj2398/ \
-#   --tasks "glucose" \
+#   --tasks "pao2,platelets" \
 #   --regression 
+
+# creatinine,glucose
 
 # bash run_regression.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
@@ -282,7 +286,7 @@ echo "All selected tasks processed."
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
 #   --use_ntp no \
 #   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
-#   --tasks "pao2,platelets,creatinine" \
+#   --tasks "pao2,platelets" \
 #   --regression 
 
 # bash run_regression.sh \

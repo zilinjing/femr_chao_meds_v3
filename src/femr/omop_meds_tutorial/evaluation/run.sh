@@ -363,7 +363,7 @@ echo "All tasks processed."
 
 
 # phenotype
-# export CUDA_VISIBLE_DEVICES=4
+# export CUDA_VISIBLE_DEVICES=1
 
 # /shared/share_mala/zj2398/models/mtpp_8k/mtpp_8k_T_8_V_10/transformer/best-100620
 
@@ -386,6 +386,7 @@ echo "All tasks processed."
 #   --observation_window 730 \
 #   --classification_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/binary/ \
 #   --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte/
+#   --masld,stroke
 
 # outcome
 # bash run.sh \
@@ -409,26 +410,26 @@ echo "All tasks processed."
 # kuvira - mimic
 # bash run.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader  \
-#   --num_proc           24 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10/transformer/best-147565 \
-#   --model_name         transformer_mtpp_T_16_V_10 \
+#   --num_proc           32 \
+#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer/best_100570 \
+#   --model_name         transformer_numerical_only \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --use_ntp            no \
 #   --cohort_type        outcome \
 #   --cache_path         /data2/huggingface/zj2398 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /data2/processed_datasets/zj2398/femr/mimic/ntp/ontology.pkl \
-#   --main_split_path     /data2/processed_datasets/zj2398/femr/mimic/ntp/main_split.csv \
+#   --ontology_path       /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl \
+#   --main_split_path     /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/main_split.csv \
 #   --output_dir   /data/results/zj2398/femr/mimic/classification  \
 #   --classification_cohort /data2/processed_datasets/mimic/patient_outcome_tasks/
 
 
 # bash run.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-#   --num_proc           24 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_16_V_10/transformer/best-147565 \
-#   --model_name         transformer_mtpp_T_16_V_10 \
+#   --num_proc           12 \
+#   --model_path          /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer/best_100570 \
+#   --model_name         transformer_numerical_only \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --use_ntp            no \
@@ -437,12 +438,12 @@ echo "All tasks processed."
 #   --min_subjects_per_batch 8 \
 #   --truncation  330 \
 #   --observation_window 730 \
-#   --ontology_path       /data2/processed_datasets/zj2398/femr/mimic/ntp/ontology.pkl \
-#   --main_split_path     /data2/processed_datasets/zj2398/femr/mimic/ntp/main_split.csv \
+#   --ontology_path       /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl \
+#   --main_split_path     /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/main_split.csv \
 #   --output_dir   /data/results/zj2398/femr/mimic/phenotype  \
 #   --classification_cohort  /data2/processed_datasets/mimic/phenotype_task/binary/ \
-#   --tte_cohort /data2/processed_datasets/mimic/phenotype_task/tte/
-
+#   --tte_cohort /data2/processed_datasets/mimic/phenotype_task/tte/ \
+#   ami
 
 
 # bash run.sh \
