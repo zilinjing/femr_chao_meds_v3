@@ -128,30 +128,49 @@ class GaussianValueHeads(nn.Module):
         labels: torch.Tensor,
         values: torch.Tensor,
         value_mask: torch.Tensor,
+        subject_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if value_mask.numel() == 0 or not value_mask.any() or len(self.heads) == 0:
+        if labels.numel() == 0 or len(self.heads) == 0:
             return features.new_tensor(0.0)
 
+        if subject_ids is None or subject_ids.numel() == 0:
+            subject_ids = torch.arange(labels.shape[0], device=labels.device, dtype=torch.long)
+        else:
+            subject_ids = subject_ids.to(device=labels.device, dtype=torch.long)
+
+        unique_subject_ids, subject_inverse = torch.unique(subject_ids, sorted=True, return_inverse=True)
+        num_subjects = unique_subject_ids.shape[0]
+        if num_subjects == 0:
+            return features.new_tensor(0.0)
+
+        default_log_prob = -0.5 * np.log(2.0 * np.pi)
         total = features.new_tensor(0.0)
-        used_heads = 0
-        for risk_id in torch.unique(labels[value_mask]).tolist():
+        for risk_id in torch.unique(labels[labels > 0]).tolist():
             risk_key = str(int(risk_id))
             if risk_key not in self.heads:
                 continue
             head = self.heads[risk_key]
-            mask = value_mask & (labels == int(risk_id))
-            if not mask.any():
+            token_mask = labels == int(risk_id)
+            if not token_mask.any():
                 continue
 
-            params = head(features[mask])
-            loc = params[:, 0]
-            scale = F.softplus(params[:, 1]) + 1e-4
-            dist = torch.distributions.Normal(loc=loc, scale=scale)
-            total = total + (-dist.log_prob(values[mask]).mean())
-            used_heads += 1
+            token_subjects = subject_inverse[token_mask]
+            token_log_prob = features.new_full((int(token_mask.sum().item()),), default_log_prob)
+            token_value_mask = value_mask[token_mask]
+            if token_value_mask.any():
+                params = head(features[token_mask][token_value_mask])
+                loc = params[:, 0]
+                scale = F.softplus(params[:, 1]) + 1e-4
+                dist = torch.distributions.Normal(loc=loc, scale=scale)
+                token_log_prob[token_value_mask] = dist.log_prob(values[token_mask][token_value_mask])
 
-        if used_heads == 0:
-            return features.new_tensor(0.0)
+            patient_counts = features.new_zeros(num_subjects)
+            patient_log_prob = features.new_zeros(num_subjects)
+            patient_counts.index_add_(0, token_subjects, features.new_ones(token_subjects.shape[0]))
+            patient_log_prob.index_add_(0, token_subjects, token_log_prob)
+            token_ll_per_patient = patient_log_prob / (patient_counts + 1e-5)
+            total = total + (-token_ll_per_patient.mean())
+
         return total
 
 
@@ -202,6 +221,9 @@ class SurvivEHRCausalTaskHead(nn.Module):
         event_label = batch["event_label"].to(features.device, dtype=torch.long)
         event_value = batch["event_value"].to(features.device, dtype=features.dtype)
         value_mask = batch["value_mask"].to(features.device, dtype=torch.bool)
+        label_subject_ids = batch.get("label_subject_ids")
+        if label_subject_ids is not None:
+            label_subject_ids = label_subject_ids.to(features.device, dtype=torch.long)
 
         if self.time_scale_days > 0:
             event_time = event_time / self.time_scale_days
@@ -217,7 +239,7 @@ class SurvivEHRCausalTaskHead(nn.Module):
                 )
 
         loss_surv = self.survival_model.loss(features, event_time, event_label) / max(event_label.shape[0], 1)
-        loss_values = self.value_model.loss(features, event_label, event_value, value_mask)
+        loss_values = self.value_model.loss(features, event_label, event_value, value_mask, label_subject_ids)
         total_loss = (self.surv_weight * loss_surv) + (self.value_weight * loss_values)
 
         result = {}

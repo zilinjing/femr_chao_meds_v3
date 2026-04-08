@@ -143,3 +143,32 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+'''
+  PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src 
+
+  python -m femr.omop_meds_tutorial.prepare_survivehr_causal \
+    --pretraining_data /user/zj2398/cache/mtpp_8k_survivehr \
+    --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+    --mtpp_task_path /user/zj2398/cache/mtpp_8k_survivehr/mtpp_task.pkl \
+    --model transformer \
+    --tokens_per_batch 8192 \
+    --num_threads 32
+
+  Train:
+
+  PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src 
+  python -m femr.omop_meds_tutorial.pretrain_survivehr_causal \
+    --pretraining_data /user/zj2398/cache/mtpp_8k_survivehr \
+    --output_dir /user/zj2398/cache/mtpp_8k_survivehr/survivehr_causal_transformer \
+    --model transformer \
+    --learning_rate 1e-5 \
+    --n_epochs 20 \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 1 \
+    --dataloader_num_workers 16 \
+    --hf_run_name survivehr_causal_transformer \
+    --bf16
+export CUDA_VISIBLE_DEVICES=0,1
+'''

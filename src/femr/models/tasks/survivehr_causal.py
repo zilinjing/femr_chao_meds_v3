@@ -90,6 +90,23 @@ class SurvivEHRCausalTask(Task):
         self.tokenizer = tokenizer
         return self
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        for transient_key in (
+            "_current_subject_id",
+            "_next_event_cursor",
+            "_kept_events",
+            "_kept_event_targets",
+            "per_subject_event_time",
+            "per_subject_event_label",
+            "per_subject_event_value",
+            "batch_event_time",
+            "batch_event_label",
+            "batch_event_value",
+        ):
+            state.pop(transient_key, None)
+        return state
+
     def get_task_config(self) -> femr.models.config.FEMRTaskConfig:
         return femr.models.config.FEMRTaskConfig(
             task_type="survivehr_causal",
@@ -110,6 +127,7 @@ class SurvivEHRCausalTask(Task):
         assert ontology is not None
         assert self.tokenizer is not None, "Tokenizer must be bound before building batches."
 
+        self._current_subject_id = subject.subject_id
         self._next_event_cursor = 1
         self._kept_events = self._collect_kept_events(subject)
         self._kept_event_targets = [self._event_to_modeled_target(event, ontology) for event in self._kept_events]
@@ -141,7 +159,7 @@ class SurvivEHRCausalTask(Task):
         next_features: Optional[Sequence[int]] = None,
         actually_add: bool = True,
     ) -> int:
-        if next_date is None or next_date == current_date:
+        if next_date is None:
             return 0
 
         if self._next_event_cursor >= len(self._kept_events):
@@ -153,8 +171,13 @@ class SurvivEHRCausalTask(Task):
 
         if next_event.time != next_date:
             raise AssertionError(
-                f"Task/event alignment mismatch: expected next_date={next_event.time}, received {next_date}"
+                "Task/event alignment mismatch for "
+                f"subject_id={self._current_subject_id}, cursor={self._next_event_cursor - 1}: "
+                f"expected next_date={next_event.time}, received {next_date}"
             )
+
+        if next_date == current_date:
+            return 0
 
         if not actually_add:
             return 1

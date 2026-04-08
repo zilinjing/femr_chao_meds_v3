@@ -161,11 +161,10 @@ class BatchCreator:
         per_subject_hierarchical_weights: List[float] = []
         per_subject_token_indices: List[int] = [0]
 
-        if self.task is not None:
-            self.task.start_subject(subject, self.tokenizer.ontology)
-
         birth = femr.pat_utils.get_subject_birthdate(subject)
         self.tokenizer.start_subject()
+        if self.task is not None:
+            self.task.start_subject(subject, self.tokenizer.ontology)
 
         for event in subject.events:
             if event.time is None or (
