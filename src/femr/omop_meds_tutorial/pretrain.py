@@ -246,6 +246,9 @@ def main():
     model = femr.models.architecture.embedding.FEMRModel(config, loss_type=args.loss_type,linear_interpolation=args.linear_interpolation)
     # model = model.to(torch.device("cuda:0"))
 
+    print(f"tokenizer vocab is {tokenizer.vocab_size}")
+    print(f"embedding bag {model.backbone.embed_bag}")
+    sys.exit(0)
 
     print(f"Model param count: {count_parameters(model)}")
     # print(f"model config is {model_config}") 
@@ -341,29 +344,15 @@ accelerate launch \
     --n_layers 28 \
     --loss_type mtpp_shared
 
-accelerate launch \
-  --num_processes 4 \
-  pretrain.py  \
-    --pretraining_data /user/zj2398/cache/mtpp_all_shared_6100_bin_5   \
-    --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
-    --per_device_train_batch_size 1   \
-    --learning_rate 8e-6 \
-    --max_grad_norm 4.0 \
-    --output_dir /user/zj2398/cache/mtpp_all_shared_6100_bin_5/mamba_8e-6_4.0_cosine \
-    --model mamba  \
-    --n_layers 28  \
-    --hf_run_name mimic_mamba_mtpp_shared_6100_8e-6_4.0_cosine  \
-    --loss_type mtpp_shared
 
-  python pretrain.py \
-    --pretraining_data  /data2/processed_datasets/zj2398/femr/mimic/mtpp  \
+python pretrain.py \
+    --pretraining_data  /data2/processed_datasets/zj2398/femr/mimic/motor  \
     --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
     --per_device_train_batch_size 1 \
-    --learning_rate 5e-6 \
-    --output_dir /data2/processed_datasets/zj2398/femr/cumc/mtpp/mamba  \
-    --hf_run_name mimic_mamba_revised_mtpp_6100 \
-    --model mamba \
-    --loss_type mtpp_shared
+    --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer  \
+    --hf_run_name mimic_motor_test \
+    --model transformer \
+    --loss_type motor
 
 
 mimic 
@@ -391,21 +380,6 @@ python pretrain_motor.py \
   --loss_type mtpp \
   --learning_rate e-6 \
   --n_layers 12
-
-CUDA_VISIBLE_DEVICES=2,3 accelerate launch \
-  --num_processes 4 \
-  --gpu_ids "4,5,6,7" \
-  pretrain.py \
-  --pretraining_data /shared/share_mala/zj2398/fomoh/motor \
-  --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
-  --per_device_train_batch_size 1 \
-  --output_dir /shared/share_mala/zj2398/fomoh/motor/test \
-  --model transformer \
-  --loss_type motor
-
-
-
-
 
 
 
