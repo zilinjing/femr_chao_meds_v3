@@ -12,20 +12,32 @@ python baseline.py \
     --meds_path /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
     --dataset mimic \
     --split_path /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv  \
-    --result_dir /shared/share_mala/zj2398/mimic/task/regression/baseline_results/result
+    --output_dir /shared/share_mala/zj2398/mimic/task/regression
 
 python baseline.py \
     --cohort_dir /data2/processed_datasets/zj2398/cumc_data/regression_100k/ \
     --meds_path /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
     --dataset cumc \
     --split_path /data2/processed_datasets/zj2398/femr/cumc/motor/main_split.csv \
-    --result_dir /data/results/zj2398/femr/cumc/regression/summary_tables
+    --output_dir /data/results/zj2398/femr/cumc/regression
+
+This script now does two things in one pass:
+1. It computes the most-recent-value baseline predictions.
+2. It writes those predictions in the same regression format used by the
+   learned models so downstream hypothesis tests can read them directly.
+
+Important alignment detail:
+- We build the saved prediction parquet directly from the cohort test rows.
+- This preserves the exact row multiplicity from the cohort, including cases
+  where the same (subject_id, prediction_time) appears more than once with
+  different labels.
+- That is why the saved file can be checked against the cohort labels without
+  losing rows or collapsing duplicates.
 """
 
 import argparse
 import functools
 from collections import defaultdict
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -42,8 +54,11 @@ from femr.omop_meds_tutorial.evaluation.eval_utils import (
 # ============================================================================
 # Constants
 # ============================================================================
-N_BOOT = 100
+N_BOOT = 10000
+BOOTSTRAP_SEED = 42
 MODEL_COL = "Most Recent Imputation"
+MODEL_NAME = "imputation"
+DEFAULT_OUTPUT_DIR = Path("/shared/share_mala/zj2398/mimic/task/regression")
 
 MIMIC_CODE_DICT = {
     "platelets": "LAB//51265//K/uL",
@@ -80,7 +95,13 @@ CUMC_CODE_DICT = {
 # Data Loading
 # ============================================================================
 def load_data(cohort_dir: Path, split_path: Path, task: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Load cohort and split into train/test."""
+    """
+    Load a single task cohort and split it into train/test rows.
+
+    The cohort parquet is the label source of truth. We keep its test rows
+    intact so the final prediction parquet has the same row structure as the
+    cohort labels used by the other regression pipelines.
+    """
     cohort_df = pd.read_parquet(cohort_dir / task / f"{task}.parquet")
     split_df = pd.read_csv(split_path).rename(columns={"split_name": "split"})
     merged = cohort_df.merge(split_df, on="subject_id", how="inner")
@@ -91,7 +112,12 @@ def load_data(cohort_dir: Path, split_path: Path, task: str) -> Tuple[pd.DataFra
 
 
 def compute_code_mean(train_df: pd.DataFrame, target_code: str) -> float:
-    """Compute mean for target code from training data, excluding zeros."""
+    """
+    Compute the fallback value used when no valid history exists.
+
+    We estimate one mean per target code from the non-test rows, excluding
+    explicit zeros and missing values, matching the baseline's original intent.
+    """
     mask = (
         (train_df["code"] == target_code) & 
         (train_df["numerical_value"] != 0) & 
@@ -107,7 +133,13 @@ def compute_code_mean(train_df: pd.DataFrame, target_code: str) -> float:
 
 
 def build_test_lookup(test_df: pd.DataFrame) -> Dict[int, List[Tuple[int, pd.Timestamp]]]:
-    """Build subject_id -> [(row_idx, prediction_time), ...] mapping."""
+    """
+    Build subject_id -> [(row_idx, prediction_time), ...] mapping.
+
+    We store the row index from the cohort test DataFrame rather than only the
+    key columns. This lets us write predictions back to the exact original test
+    rows, including duplicated (subject_id, prediction_time) pairs.
+    """
     lookup = defaultdict(list)
     for idx, row in test_df.iterrows():
         lookup[row["subject_id"]].append((idx, row["prediction_time"]))
@@ -129,6 +161,10 @@ def process_subjects(
     For each test sample:
     - Find most recent value of target_code before prediction_time (excluding zeros)
     - Use code_mean as fallback if no historical value exists
+
+    The returned dictionary is keyed by the original test row index. That row
+    index is what ultimately keeps the saved prediction parquet aligned with the
+    cohort labels.
     """
     results = {}
     
@@ -174,29 +210,77 @@ def process_subjects(
 # ============================================================================
 # Evaluation
 # ============================================================================
-def evaluate_and_save(
+def build_prediction_df(
     test_df: pd.DataFrame,
     predictions: Dict[int, float],
+    fallback_value: float,
+) -> pd.DataFrame:
+    """
+    Create the saved regression prediction DataFrame.
+
+    Why this helper exists:
+    - The p-value script expects the learned-model regression schema:
+      subject_id, prediction_time, y_true, y_pred, residual.
+    - We therefore convert the baseline outputs into that same schema.
+    - We also build the DataFrame from the cohort test rows directly instead of
+      from a merged key table. This preserves duplicate key rows exactly.
+
+    Any row that did not receive a subject-level prediction is filled with the
+    task-specific fallback mean so that every cohort test row is represented in
+    the output parquet.
+    """
+    y_pred = (
+        test_df.index.to_series()
+        .map(predictions)
+        .fillna(fallback_value)
+        .astype(float)
+        .to_numpy()
+    )
+
+    pred_df = test_df[["subject_id", "prediction_time"]].copy()
+    pred_df["y_true"] = test_df["numerical_value"].to_numpy()
+    pred_df["y_pred"] = y_pred
+    pred_df["residual"] = pred_df["y_true"] - pred_df["y_pred"]
+    return pred_df
+
+
+def evaluate_and_save(
+    pred_df: pd.DataFrame,
     task: str,
-    result_dir: Path,
+    output_dir: Path,
 ):
-    """Compute bootstrap metrics and save to result tables."""
-    y_pred = test_df.index.map(predictions).to_numpy()
-    y_true = test_df["numerical_value"].to_numpy()
-    
-    metrics = _bootstrap_regression_metrics(y_true, y_pred, n_boot=N_BOOT, seed=0)
-    
+    """
+    Compute bootstrap metrics and write outputs.
+
+    The prediction parquet path mirrors the learned-model layout:
+        <output_dir>/imputation/results/<task>/test_predictions_50k.parquet
+
+    Keeping that layout consistent means the hypothesis-test script can load the
+    imputation baseline the same way it loads ntp, mtpp, and motor outputs.
+    """
+    y_true = pred_df["y_true"].to_numpy()
+    y_pred = pred_df["y_pred"].to_numpy()
+
+    metrics = _bootstrap_regression_metrics(y_true, y_pred, n_boot=N_BOOT, seed=BOOTSTRAP_SEED)
+
     rmse_mean, rmse_std = _metric_mean_std(metrics, "rmse")
     mae_mean, mae_std = _metric_mean_std(metrics, "mae")
     r2_mean, r2_std = _metric_mean_std(metrics, "r2")
-    
+
     print(f"  RMSE: {rmse_mean:.4f} ({rmse_std:.4f})")
     print(f"  MAE:  {mae_mean:.4f} ({mae_std:.4f})")
     print(f"  R2:   {r2_mean:.4f} ({r2_std:.4f})")
-    
-    # _update_metric_table(result_dir, "rmse", task, MODEL_COL, rmse_mean, rmse_std)
-    # _update_metric_table(result_dir, "mae", task, MODEL_COL, mae_mean, mae_std)
-    # _update_metric_table(result_dir, "r2", task, MODEL_COL, r2_mean, r2_std)
+
+    prediction_dir = output_dir / MODEL_NAME / "results" / task
+    prediction_dir.mkdir(parents=True, exist_ok=True)
+    pred_path = prediction_dir / "test_predictions_50k.parquet"
+    pred_df.to_parquet(pred_path, index=False)
+    print(f"  Saved predictions to: {pred_path}")
+
+    summary_dir = output_dir / "summary_tables"
+    _update_metric_table(summary_dir, "rmse", task, MODEL_COL, rmse_mean, rmse_std)
+    _update_metric_table(summary_dir, "mae", task, MODEL_COL, mae_mean, mae_std)
+    _update_metric_table(summary_dir, "r2", task, MODEL_COL, r2_mean, r2_std)
 
 
 # ============================================================================
@@ -206,18 +290,24 @@ def run_baseline(
     cohort_dir: Path,
     meds_path: str,
     split_path: Path,
-    result_dir: Path,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
     dataset: str = "mimic",
     num_threads: int = 40,
 ):
-    """Run most recent imputation baseline for all tasks."""
+    """
+    Run the most-recent-value baseline for every task in the dataset-specific map.
+
+    The MEDS pass computes predictions, and then each task writes:
+    - a regression-format prediction parquet under imputation/results/
+    - bootstrap summary metrics into summary_tables/
+    """
     if dataset == "mimic":
         CODE_DICT = MIMIC_CODE_DICT 
     else:
         CODE_DICT = CUMC_CODE_DICT
     tasks = list(CODE_DICT.keys())
-    result_dir.mkdir(parents=True, exist_ok=True)
-    
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     print(f"Initializing MEDS database: {meds_path}")
     # db = meds_reader.SubjectDatabase(meds_path, num_threads=num_threads)
 
@@ -250,9 +340,11 @@ def run_baseline(
             )
             predictions = functools.reduce(lambda acc, x: {**acc, **x}, db.map(worker), {})
             print(f"Generated {len(predictions):,} predictions")
-            
+
+            pred_df = build_prediction_df(test_df, predictions, code_mean)
+
             # Evaluate
-            evaluate_and_save(test_df, predictions, task, result_dir)
+            evaluate_and_save(pred_df, task, output_dir)
 
 
 def main():
@@ -260,16 +352,26 @@ def main():
     parser.add_argument("--cohort_dir", type=Path, required=True)
     parser.add_argument("--meds_path", type=str, required=True)
     parser.add_argument("--split_path", type=Path, required=True)
-    parser.add_argument("--result_dir", type=Path, required=True)
+    parser.add_argument("--output_dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--result_dir",
+        type=Path,
+        default=None,
+        help="Deprecated alias for --output_dir.",
+    )
     parser.add_argument("--dataset", type=str,default="mimic")
     parser.add_argument("--num_threads", type=int, default=32)
     args = parser.parse_args()
-    
+
+    # Keep backward compatibility with the older CLI flag name while making the
+    # new output layout explicit through --output_dir.
+    output_dir = args.result_dir if args.result_dir is not None else args.output_dir
+
     run_baseline(
         cohort_dir=args.cohort_dir,
         meds_path=args.meds_path,
         split_path=args.split_path,
-        result_dir=args.result_dir,
+        output_dir=output_dir,
         dataset=args.dataset,
         num_threads=args.num_threads,
     )

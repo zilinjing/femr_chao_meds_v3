@@ -4,34 +4,50 @@ Produces results compatible with tte_evaluation for paired bootstrap testing.
 
 Usage:
   python run_survival_compressed.py --phenotypes ami stroke masld
-  python run_survival_compressed.py --phenotypes ami --truncation 330 --n_bootstrap 10000
+  python deephit.py --truncation 300 --n_bootstrap 10000
 """
 
 import os
 import argparse
 import pickle
+import random
 import numpy as np
 import pandas as pd
+import torch
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import ParameterGrid
 from pycox.models import DeepHitSingle
-from pycox.preprocessing.label_transforms import LabTransDiscreteTime
 import torchtuples as tt
 
-from survival_utils import (
+from utils import (
     generate_bootstrap_indices, bootstrap_cindex_parallel,
     make_structured_array, save_survival_results,
 )
+
+# =========================
+# Reproducibility
+# =========================
+DEFAULT_SEED = 42
+
+
+def set_seed(seed=DEFAULT_SEED):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 # =========================
 # CLI
 # =========================
 parser = argparse.ArgumentParser()
 parser.add_argument("--phenotypes", nargs="*", default=[])
-parser.add_argument("--truncation", type=int, default=330)
+parser.add_argument("--truncation", type=float, default=300)
 parser.add_argument("--n_bootstrap", type=int, default=10000)
-parser.add_argument("--seed", type=int, default=42)
-parser.add_argument("--n_jobs", type=int, default=8)
+parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+parser.add_argument("--n_jobs", type=int, default=32)
 args = parser.parse_args()
 
 
@@ -66,11 +82,15 @@ def load_features_labels(feature_path, label_path, split_path):
     split = pd.read_csv(split_path, index_col="subject_id")
     labels = labels.join(split)
 
+    # Match tte_test ordering before deriving train/tuning/hyper splits.
+    X = X.sort_index()
+    labels = labels.sort_index()
+
     # Create val/hyper splits from train
     val = labels[labels.split_name == "train"].index.to_series().sample(
-        frac=0.2, replace=False, random_state=42
+        frac=0.2, replace=False, random_state=DEFAULT_SEED
     )
-    hyper = val.sample(frac=0.5, replace=False, random_state=42)
+    hyper = val.sample(frac=0.5, replace=False, random_state=DEFAULT_SEED)
     labels.loc[val, "split_name"] = "tuning"
     labels.loc[hyper, "split_name"] = "hyper"
 
@@ -119,7 +139,9 @@ def split_and_scale_survival(X, labels, tte_col="time_to_event_days"):
 # =========================
 def train_and_evaluate_deephit(splits, truncation, model_name,
                                 save_path=None, n_bootstrap=10000,
-                                seed=42, n_jobs=8):
+                                seed=DEFAULT_SEED, n_jobs=8):
+    set_seed(seed)
+
     train_df = splits["train"]
     val_df = splits["val"]
     hyper_df = splits["hyper"]
@@ -133,14 +155,14 @@ def train_and_evaluate_deephit(splits, truncation, model_name,
 
     feat_cols = [c for c in train_df.columns if c.startswith("f")]
 
-    x_train = train_df[feat_cols].values
-    x_val = val_df[feat_cols].values
-    x_hyper = hyper_df[feat_cols].values
-    x_test = test_df[feat_cols].values
+    x_train = train_df[feat_cols].values.astype(np.float32)
+    x_val = val_df[feat_cols].values.astype(np.float32)
+    x_hyper = hyper_df[feat_cols].values.astype(np.float32)
+    x_test = test_df[feat_cols].values.astype(np.float32)
 
     get_te = lambda df: (df["time_to_event"].values, df["tte_label"].values)
 
-    labtrans = LabTransDiscreteTime(100)
+    labtrans = DeepHitSingle.label_transform(100)
     y_train = labtrans.fit_transform(*get_te(train_df))
     y_val = labtrans.transform(*get_te(val_df))
     y_hyper = labtrans.transform(*get_te(hyper_df))
@@ -151,18 +173,24 @@ def train_and_evaluate_deephit(splits, truncation, model_name,
     in_features = x_train.shape[1]
     out_features = labtrans.out_features
 
-    # Same grid structure as your train_utils.py
+    # Match the same DeepHit search space used in tte_test.py.
+    # grid = ParameterGrid({
+    #     "dropout": [0, 0.1],
+    #     "lr": [0.001, 0.0001],
+    #     "batch": [1024, 2048],
+    # })
+
     grid = ParameterGrid({
-        "lr": [1e-3, 1e-4],
-        "batch": [1024, 2048],
-        "dropout": [0, 0.1],
-        "layers": [[50] * i for i in range(3)],
+        "dropout": [0.1],
+        "lr": [0.001],
+        "batch": [1024],
     })
+
 
     best_model, best_loss, best_params = None, np.inf, None
     for p in grid:
         net = tt.practical.MLPVanilla(
-            in_features, p["layers"], out_features,
+            in_features, [], out_features,
             batch_norm=True, dropout=p["dropout"],
         )
         model = DeepHitSingle(net, tt.optim.Adam, duration_index=labtrans.cuts)
@@ -198,7 +226,7 @@ def train_and_evaluate_deephit(splits, truncation, model_name,
     print(f"[{model_name}] C-Index: {mean_val:.4f} (±{std_val:.4f})")
 
     if save_path:
-        save_survival_results(results, save_path)
+        save_survival_results(results, best_model, save_path, truncation)
 
     return results, best_model
 
@@ -208,7 +236,7 @@ def train_and_evaluate_deephit(splits, truncation, model_name,
 # =========================
 EXPERIMENTS = {
     "mimic": {
-        "data_path": "/data2/processed_datasets/mimic/baseline_features_22_12_vj2292/",
+        "data_path": "/shared/share_mala/zj2398/mimic/task/phenotype_task/deephit/tte/",
         "tte_col": "time_to_event_days",
         "phenotypes": ["ami", "stroke", "masld"],
     },
@@ -216,14 +244,15 @@ EXPERIMENTS = {
 
 if __name__ == "__main__":
     for dataset, cfg in EXPERIMENTS.items():
-        split_path = f"/data2/processed_datasets/zj2398/femr/{dataset}/main_split.csv"
-        results_path = f"/data/results/zj2398/femr/{dataset}/phenotype/deephit"
+        split_path = f"/user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv"
+        results_path = f"/shared/share_mala/zj2398/mimic/task/phenotype_task/results/tte"
         os.makedirs(results_path, exist_ok=True)
 
         phenotypes = args.phenotypes if args.phenotypes else cfg["phenotypes"]
 
         for name in phenotypes:
-            out_file = os.path.join(results_path, f"{name}_compressed_deephit.pickle")
+            save_dir = os.path.join(results_path, name)
+            out_file = os.path.join(save_dir, f"tte_results_{args.truncation}.pkl")
             if os.path.exists(out_file):
                 print(f"Skipping {name}, already exists")
                 continue
@@ -246,7 +275,7 @@ if __name__ == "__main__":
                     splits,
                     truncation=args.truncation,
                     model_name=f"{dataset}_{name}_compressed",
-                    save_path=out_file,
+                    save_path=save_dir,
                     n_bootstrap=args.n_bootstrap,
                     seed=args.seed,
                     n_jobs=args.n_jobs,
