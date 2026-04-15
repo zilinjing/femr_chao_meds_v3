@@ -318,13 +318,13 @@ echo "All selected tasks processed."
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path      /user/zj2398/cache/mtpp_8k/ontology.pkl \
-#   --main_split_path    /user/zj2398/cache/mtpp_8k/main_split.csv \
-#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h/ \
+#   --ontology_path      /user/zj2398/cache/mtpp_8k_T_8_V_5/ontology.pkl \
+#   --main_split_path    /user/zj2398/cache/mtpp_8k_T_8_V_5/main_split.csv \
+#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
 #   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
 #   --use_ntp no \
-#   --tasks "pao2,platelets,bilirubin,creatinine" \
+#   --tasks "glucose" \
 #   --regression 
 
 
