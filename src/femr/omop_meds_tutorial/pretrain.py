@@ -246,9 +246,10 @@ def main():
     model = femr.models.architecture.embedding.FEMRModel(config, loss_type=args.loss_type,linear_interpolation=args.linear_interpolation)
     # model = model.to(torch.device("cuda:0"))
 
+
     print(f"tokenizer vocab is {tokenizer.vocab_size}")
     print(f"embedding bag {model.backbone.embed_bag}")
-    sys.exit(0)
+    # sys.exit(0)
 
     print(f"Model param count: {count_parameters(model)}")
     # print(f"model config is {model_config}") 
@@ -269,8 +270,8 @@ def main():
 
         weight_decay=0.05,
         adam_beta2=0.95,
-        report_to="none",
-        # xxx
+        # report_to="none",
+        report_to = "wandb",
         max_grad_norm=args.max_grad_norm,
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
@@ -324,7 +325,7 @@ if __name__ == "__main__":
 
 '''
 
-export CUDA_VISIBLE_DEVICES=2,3,4,5
+export CUDA_VISIBLE_DEVICES=1,2
 
 kuvira
 
@@ -344,8 +345,9 @@ accelerate launch \
     --n_layers 28 \
     --loss_type mtpp_shared
 
-
-python pretrain.py \
+accelerate launch \
+  --num_processes 2 \
+  pretrain.py \
     --pretraining_data  /data2/processed_datasets/zj2398/femr/mimic/motor  \
     --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
     --per_device_train_batch_size 1 \
@@ -353,6 +355,16 @@ python pretrain.py \
     --hf_run_name mimic_motor_test \
     --model transformer \
     --loss_type motor
+
+    
+python pretrain.py \
+    --pretraining_data  /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5  \
+    --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+    --per_device_train_batch_size 1 \
+    --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer/test  \
+    --hf_run_name mimic_motor_test \
+    --model transformer \
+    --loss_type mtpp_shared
 
 
 mimic 
