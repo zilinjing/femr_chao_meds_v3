@@ -313,7 +313,7 @@ echo "All selected tasks processed."
 # bash run_regression.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
 #   --num_proc           24 \
-#   --model_path         /shared/share_mala/zj2398/models/mtpp_8k/mtpp_all_shared_6100_bin_5/mamba/best-69888 \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5/mamba/best-69888 \
 #   --model_name         mamba_mtpp \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \

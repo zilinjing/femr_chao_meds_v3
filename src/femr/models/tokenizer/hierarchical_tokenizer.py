@@ -150,6 +150,8 @@ def map_statistics(
                 res['text_counts'][text] += 1 / num_subjects
             for value in v['numeric_samples']:
                 res['numeric_samples'].add(value, 1 / (num_subjects * len(v['numeric_samples'])))
+            # we want to count the number of numercial value per property for all patients, so the / weight or * weight doesn't matter, as it will be 
+            # normalized later by  frac_numeric = property_data["numeric_count"] / total_numeric_weight
             res['numeric_count'] += len(v['numeric_samples']) / weight
 
     return {
@@ -216,6 +218,7 @@ def convert_statistics_to_msgpack(
             bins = sorted(list(set(np.quantile(numeric_samples, np.linspace(0, 1, num=num_numeric_for_property + 1)))))
             bins = bins[1:-1]
 
+            # replace the tokenizer first and last quantile with -inf and inf
             samples = [float('-inf')]
             samples.extend(bins)
             samples.append(float("inf"))

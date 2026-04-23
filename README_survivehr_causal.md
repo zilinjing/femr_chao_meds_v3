@@ -45,6 +45,7 @@ The preprocessing script:
 - loads the existing MTPP task,
 - creates a `SurvivEHRCausalTask` from it,
 - builds train and validation batches with the standard `FEMRBatchProcessor`,
+- keeps exact label coverage for the causal task rather than MTPP-style sampled label times,
 - saves new batch datasets under:
   - `train_batches_survivehr_causal`
   - `val_batches_survivehr_causal`
@@ -78,12 +79,12 @@ So the backbone input is unchanged.
 
 ### What counts as one target
 
-For each valid adjacent pair of kept events:
+For each kept context event:
 
 - input/context is the hidden state at event `j`,
-- target time is `time(event[j+1]) - time(event[j])`,
-- target label is one modeled code for the immediate next kept event,
-- target value is the raw numeric value if that next event is a modeled numerical code.
+- target time is the interval to the next future kept event that is inside the selected modeled code set,
+- target label is one modeled code for that next valid modeled event,
+- target value is the raw numeric value if that target event is a modeled numerical code.
 
 The task emits:
 
@@ -94,22 +95,26 @@ The task emits:
 
 ### Mapping the next event to a single competing-risk label
 
-The MTPP code list contains many ontology-level non-numerical codes. A raw event can match multiple selected parents. A competing-risk target must be one label, so the implementation uses:
+The implementation uses direct raw-code matching first, with an ontology fallback against the selected MTPP task-code universe:
 
 - direct raw code for numerical events, if the raw code is in the MTPP numerical code set,
-- deepest selected ontology parent for non-numerical events,
-- task-order tie break if multiple selected parents have the same depth.
+- otherwise the nearest numerical ancestor that is in the selected numerical code set,
+- direct raw code for non-numerical events, if the raw code is in the selected non-numerical task-code set,
+- otherwise the nearest non-numerical ancestor that is in the selected non-numerical task-code set.
 
-If the immediate next kept event is not in the modeled code set, the label is set to `0`, which is treated as censoring with respect to the modeled competing-risk set.
+If multiple modeled ancestors exist at the same ontology distance, the task uses task-order tie breaking. If no modeled raw code or modeled ancestor exists, that event is skipped when searching for the next target.
 
 ### Important consequence
 
-This is not the same censoring definition as MTPP. Here, censoring means:
+This differs from both the original full-vocabulary SurvivEHR setup and the original MTPP objective:
 
-- the next raw kept event happened at time `t`,
-- but that event is not one of the modeled competing-risk labels.
+- the loss is still next-event style, not many-task first-future-occurrence style,
+- but the modeled label universe is restricted to the MTPP task codes,
+- so the target is the next future kept event inside that restricted code universe.
 
-It does not mean “no event before end of record.”
+Censoring means:
+
+- no later modeled event exists before end of record.
 
 ## Model Architecture
 
@@ -154,6 +159,8 @@ The censoring term for label `0` is:
 
 This mirrors the original SurvivEHR DeSurv-style competing-risk objective.
 
+Time is passed from the FEMR task in days and normalized inside the head by dividing by `time_scale_days` with default `365.25`, so training is effectively done in years.
+
 ### Gaussian value part
 
 For numerical next-event labels only, the head predicts:
@@ -161,6 +168,15 @@ For numerical next-event labels only, the head predicts:
 - `value | h, k ~ Normal(mu_k(h), sigma_k(h))`
 
 and adds the Gaussian negative log-likelihood on the raw numeric value.
+
+The value loss follows the original SurvivEHR reduction closely:
+
+- one Gaussian head per numerical code,
+- average over occurrences of that code within each patient,
+- average across patients in the batch,
+- sum across numerical code types.
+
+If the correct next token is numerical but the numeric value is missing, the implementation keeps the default `Normal(0,1)` contribution for that token position, matching the original baseline logic as closely as practical.
 
 ### Combined loss
 
@@ -219,9 +235,11 @@ When extracting features:
 This implementation differs from MTPP in the objective:
 
 - MTPP predicts the first future occurrence for every selected code in parallel.
-- SurvivEHR causal predicts one immediate next modeled event.
+- SurvivEHR causal predicts one next future modeled event in the selected code universe.
 - MTPP uses discretized time bins and discretized value bins.
 - SurvivEHR causal uses continuous time and Gaussian raw-value prediction.
+- MTPP uses sampled label positions in its non-exact batching path.
+- SurvivEHR causal uses exact label coverage and does not inherit that sampling regime.
 
 The backbone and tokenizer are intentionally shared so the loss/objective is the primary changed factor.
 
@@ -238,8 +256,8 @@ It is not identical to the original repository because:
 
 - the input representation is FEMR hierarchical `EmbeddingBag`, not the original SurvivEHR event embedding stack,
 - the modeled risk set is the selected MTPP code set, not the full token vocabulary,
-- non-numerical ontology events are collapsed to one selected parent label,
-- time scaling is controlled by `time_scale_days` rather than the original pipeline’s implicit normalization,
-- the Gaussian loss weighting is simpler than the original per-token-per-patient averaging in SurvivEHR.
+- the target is the next future modeled event inside the selected code set rather than the next token in the full vocabulary,
+- time scaling is explicit in the head via `time_scale_days`,
+- batching and preprocessing follow FEMR’s processor/tokenizer stack rather than the original SurvivEHR datamodule.
 
 So this should be viewed as a controlled FEMR-backbone implementation of the SurvivEHR-style objective, not a byte-for-byte port of the original codebase.
