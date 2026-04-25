@@ -30,6 +30,7 @@ import femr.models.tasks.motor
 import femr.models.tokenizer
 import femr.models.architecture.xformers
 
+from femr.models.architecture.survivehr_head import SurvivEHRCausalTaskHead
 from femr.models.architecture.rewrite_stat_dict import load_femr_model_with_compat
 from femr.models.tasks.motor import LabeledSubjectTask
 
@@ -1437,6 +1438,8 @@ class FEMRModel(transformers.PreTrainedModel):
             return MTPPSharedTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "mtpp_value":
             return MTPPValueTaskHead(self.hidden_size, **task_kwargs)
+        elif self.loss_type == "survivehr":
+            return SurvivEHRCausalTaskHead(self.hidden_size, **task_kwargs)
         else:
             raise RuntimeError("Could not determine head for task " + self.loss_type)
 
@@ -1455,15 +1458,21 @@ class FEMRModel(transformers.PreTrainedModel):
         features = self.backbone(batch["transformer"], s)
         if "task" in batch and self.config.task_config is not None:
             features = features.reshape(-1, features.shape[-1])
-            features = features[batch["transformer"]["label_indices"], :]
+            label_indices = batch["transformer"]["label_indices"]
+            features = features[label_indices, :]
             # print(f"features before forward: {features.shape}")
-            
-            loss, result = self.task_model(features, batch["task"], return_logits=return_logits)
+
+            task_batch = batch["task"]
+            if self.loss_type == "survivehr":
+                task_batch = dict(task_batch)
+                task_batch["label_subject_ids"] = batch["subject_ids"][label_indices]
+
+            loss, result = self.task_model(features, task_batch, return_logits=return_logits)
             if return_reprs:
                 result["representations"] = features
             if return_logits or return_reprs:
-                result["timestamps"] = batch["transformer"]["timestamps"][batch["transformer"]["label_indices"]]
-                result["subject_ids"] = batch["subject_ids"][batch["transformer"]["label_indices"]]
+                result["timestamps"] = batch["transformer"]["timestamps"][label_indices]
+                result["subject_ids"] = batch["subject_ids"][label_indices]
             return loss, result
         else:
             loss = 0

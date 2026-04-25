@@ -17,6 +17,7 @@ from femr.models.tasks.ntp import CLMBRTask as CLMBRTask
 from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
 from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
+from femr.models.tasks.survivehr_task import SurvivEHRTask
 
 
 def main(args):
@@ -70,7 +71,7 @@ def main(args):
         tokenizer_path = pretraining_data_path / 'tokenizer'
         if not tokenizer_path.exists():
             print("Train tokenizer")
-            if args.loss_type == "ntp":
+            if args.loss_type in ("ntp", "survivehr"):
                 tokenizer = CLMBRTokenizer.train(
                     main_database,
                     vocab_size=args.vocab_size,
@@ -86,7 +87,7 @@ def main(args):
             tokenizer.save_pretrained(tokenizer_path)
         else:
             print(f"Loading tokenizer {args.loss_type}")
-            if args.loss_type == "ntp":
+            if args.loss_type in ("ntp", "survivehr"):
                 tokenizer = CLMBRTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
             else:
                 tokenizer = HierarchicalTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
@@ -144,6 +145,13 @@ def main(args):
             elif args.loss_type == "ntp":
                 print("ntp choosen")
                 task = CLMBRTask(clmbr_vocab_size=len(tokenizer.original_code_to_id))
+            elif args.loss_type == "survivehr":
+                print("survivehr choosen")
+                task = SurvivEHRTask.fit_pretraining_task_info(
+                    main_database,
+                    tokenizer,
+                    value_count_threshold=args.value_count_threshold,
+                )
             else:
                 print("no task matched")
 
@@ -354,7 +362,7 @@ def create_omop_meds_tutorial_argparser():
         dest="loss_type",
         action="store",
         required=True,
-        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp"],
+        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr"],
         type=str,
         default=8,
     )
@@ -394,6 +402,18 @@ python prepare.py \
   --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets \
   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
 
+# PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
+# python -m femr.omop_meds_tutorial.prepare \
+python prepare.py \
+  --pretraining_data /user/zj2398/cache/survivehr \
+  --ontology_path /user/zj2398/cache/survivehr/ontology.pkl \
+  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+  --num_threads 32 \
+  --tokens_per_batch 16384 \
+  --value_count_threshold 1000 \
+  --model transformer \
+  --loss_type survivehr \
+  --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets
 
 kuvira mimic
 

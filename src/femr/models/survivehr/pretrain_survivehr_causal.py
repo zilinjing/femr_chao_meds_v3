@@ -71,7 +71,7 @@ def resolve_resume_checkpoint(output_dir: pathlib.Path, checkpoint_dir: str | No
 
 
 def build_model_config(args, tokenizer, task):
-    conf_dir = pathlib.Path(__file__).parent / "conf"
+    conf_dir = pathlib.Path(__file__).resolve().parents[2] / "omop_meds_tutorial" / "conf"
     with initialize_config_dir(version_base=None, config_dir=str(conf_dir)):
         hydra_cfg = compose(config_name="config", overrides=[f"model={args.model}"])
 

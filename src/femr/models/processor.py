@@ -14,6 +14,7 @@ import torch.utils.data
 import femr.models.tokenizer
 import femr.pat_utils
 from femr.models.tasks.ntp import CLMBRTask
+from femr.models.tasks.survivehr_task import SurvivEHRTask
 import logging
 logger = logging.getLogger(__name__)
 
@@ -195,7 +196,6 @@ class BatchCreator:
                 current_date = event.time.date()
                 codes_seen_today = set()
 
-            # Get the age of the event, delta time to last time
             age = max(datetime.timedelta(seconds=0), event.time - birth)
             if last_time is not None:
                 delta = event.time - last_time
@@ -223,10 +223,22 @@ class BatchCreator:
                     #Ask the task how many labels to place at the previous timestep index. 
                     # num_added = 0/1, depneding on if there is still future tte event to predict
                     #Append that many copies of the current age‐index into per_subject_label_indices
-                    if isinstance(self.task, CLMBRTask):
+                    if isinstance(self.task, (CLMBRTask, SurvivEHRTask)):
                         clmbr_token_id = self.tokenizer.get_event_code_token(event)
                         clmbr_features = [clmbr_token_id] if clmbr_token_id is not None else None
-                        num_added = self.task.add_event(last_time, event.time, clmbr_features, actually_add=actually_add)
+                        if isinstance(self.task, SurvivEHRTask):
+                            num_added = self.task.add_event(
+                                last_time,
+                                event.time,
+                                clmbr_features,
+                                next_numeric_value=getattr(event, "numeric_value", None),
+                                next_text_value=getattr(event, "text_value", None),
+                                actually_add=actually_add,
+                            )
+                        else:
+                            num_added = self.task.add_event(
+                                last_time, event.time, clmbr_features, actually_add=actually_add
+                            )
                     else:
                         num_added = self.task.add_event(last_time, event.time, features, actually_add=actually_add)
                     for _ in range(num_added):

@@ -227,16 +227,16 @@ class SurvivEHRCausalTaskHead(nn.Module):
 
         if self.time_scale_days > 0:
             event_time = event_time / self.time_scale_days
-        event_time = torch.clamp(event_time, min=1e-6)
 
         if self.concurrent_strategy == "add_noise":
-            zero_mask = event_time <= 1e-6
+            zero_mask = event_time == 0
             if zero_mask.any():
                 exp_dist = torch.distributions.Exponential(rate=1000.0)
                 event_time = event_time.clone()
                 event_time[zero_mask] = event_time[zero_mask] + exp_dist.sample(event_time[zero_mask].shape).to(
                     event_time.device
                 )
+        event_time = torch.clamp(event_time, min=1e-6)
 
         loss_surv = self.survival_model.loss(features, event_time, event_label) / max(event_label.shape[0], 1)
         loss_values = self.value_model.loss(features, event_label, event_value, value_mask, label_subject_ids)

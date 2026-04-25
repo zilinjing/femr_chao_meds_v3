@@ -11,7 +11,8 @@ import pandas as pd
 
 import femr.splits
 from femr.models.processor import FEMRBatchProcessor
-from femr.models.tasks.survivehr_causal import SurvivEHRCausalTask
+from femr.models.survivehr.survivehr_causal import SurvivEHRCausalTask
+from femr.models.survivehr.processor_survivehr import SurvivEHRBatchProcessor
 from femr.models.tokenizer import HierarchicalTokenizer
 
 
@@ -91,7 +92,7 @@ def main():
             pickle.dump(task, f)
 
     task.bind_tokenizer(tokenizer)
-    processor = FEMRBatchProcessor(tokenizer, task, args.hf_cache_path)
+    processor = SurvivEHRBatchProcessor(tokenizer, task, args.hf_cache_path)
 
     timing = {}
     with meds_reader.SubjectDatabase(str(meds_reader_path), num_threads=args.num_threads) as database:
@@ -148,7 +149,8 @@ if __name__ == "__main__":
 '''
   PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src 
 
-  python -m femr.omop_meds_tutorial.prepare_survivehr_causal \
+  python -m femr.models.survivehr.prepare_survivehr_causal \
+  python prepare_survivehr_causal.py \
     --pretraining_data /user/zj2398/cache/mtpp_8k_survivehr \
     --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
     --mtpp_task_path /user/zj2398/cache/mtpp_8k_survivehr/mtpp_task.pkl \

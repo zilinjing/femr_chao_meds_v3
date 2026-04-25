@@ -24,6 +24,7 @@ from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
 from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
 from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
+from femr.models.tasks.survivehr_task import SurvivEHRTask as SurvivEHRTask
 
 class CustomEarlyStoppingCallback(transformers.EarlyStoppingCallback):
     def check_metric_value(self, args, state, control, metric_value):
@@ -110,7 +111,7 @@ def create_arg_parser():
         "--loss_type",
         dest="loss_type",
         type=str,
-        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp"],
+        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr"],
         default="motor",
         required=True,
     )
@@ -162,7 +163,7 @@ def main():
         ontology = pickle.load(f)
 
     tokenizer_path = pretraining_data / 'tokenizer'
-    if args.loss_type == "ntp":
+    if args.loss_type in ("ntp", "survivehr"):
         tokenizer = femr.models.tokenizer.CLMBRTokenizer.from_pretrained(
             tokenizer_path, ontology=ontology
         )
@@ -276,7 +277,7 @@ def main():
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
-        ddp_find_unused_parameters=False,
+        ddp_find_unused_parameters=(args.loss_type == "survivehr"),
 
         warmup_steps=1000,
 
@@ -329,7 +330,7 @@ export CUDA_VISIBLE_DEVICES=1,2
 
 kuvira
 
-export CUDA_VISIBLE_DEVICES=1,5,6,7
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 accelerate launch \
   --num_processes 4 \
@@ -370,7 +371,7 @@ python pretrain.py \
 mimic 
 gsb
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch \
+CUDA_VISIBLE_DEVICES=4,6 accelerate launch \
   --num_processes 4 \
   --gpu_ids "4,5,6,7" \
     pretrain.py \
@@ -380,6 +381,19 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch \
     --model transformer \
     --hf_run_name mimic_mtpp_shared \
     --loss_type mtpp_shared
+
+accelerate launch \
+    --num_processes 2 \
+    pretrain.py \
+    --pretraining_data /user/zj2398/cache/survivehr \
+    --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
+    --output_dir /user/zj2398/cache/survivehr/transformer \
+    --model transformer \
+    --loss_type survivehr \
+    --learning_rate 1e-5 \
+    --n_epochs 20 \
+    --hf_run_name mimic_survivehr_transformer_value_1000
+
 
     
 python pretrain_motor.py \
