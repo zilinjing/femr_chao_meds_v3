@@ -352,7 +352,7 @@ if __name__ == "__main__":
 
 '''
 
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=2
 
 kuvira
 
@@ -384,29 +384,35 @@ accelerate launch \
     --loss_type motor
 
     
-python pretrain.py \
-    --pretraining_data  /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5  \
-    --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-    --per_device_train_batch_size 1 \
-    --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer/test  \
-    --hf_run_name mimic_motor_test \
+accelerate launch \
+    --num_processes 2 \
+    pretrain.py \
+    --pretraining_data /user/zj2398/cache/survivehr \
+    --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
+    --output_dir /user/zj2398/cache/survivehr/transformer \
     --model transformer \
-    --loss_type mtpp_shared
+    --loss_type survivehr \
+    --learning_rate 1e-5 \
+    --n_epochs 20 \
+    --hf_run_name mimic_survivehr_transformer_value_1000
 
+
+
+accelerate launch \
+  --num_processes 2 \
+    pretrain.py \
+    --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/survivehr \
+    --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
+    --output_dir /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer  \
+    --model transformer \
+    --loss_type survivehr \
+    --learning_rate 1e-5 \
+    --n_epochs 20 \
+    --hf_run_name cumc_survivehr_transformer_value_1000
 
 mimic 
 gsb
 
-export CUDA_VISIBLE_DEVICES=4,5,6 accelerate launch \
-  --num_processes 4 \
-  --gpu_ids "4,5,6,7" \
-    pretrain.py \
-    --pretraining_data /user/zj2398/cache/mtpp_8k \
-    --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
-    --output_dir /shared/share_mala/zj2398/models/mtpp_8k/mtpp_mean_all_shared \
-    --model transformer \
-    --hf_run_name mimic_mtpp_shared \
-    --loss_type mtpp_shared
 
 accelerate launch \
     --num_processes 3 \

@@ -402,8 +402,6 @@ python prepare.py \
   --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets \
   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
 
-# PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
-# python -m femr.omop_meds_tutorial.prepare \
 python prepare.py \
   --pretraining_data /user/zj2398/cache/survivehr \
   --ontology_path /user/zj2398/cache/survivehr/ontology.pkl \
@@ -442,29 +440,17 @@ python prepare_mtpp.py \
   --num_threads 40 \
   --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_0.1_reader
 
+kuvira cumc
 
-python prepare_motor.py \
-  --pretraining_data /data2/processed_datasets/zj2398/femr/cumc_0.1/motor_chao_ontology \
-  --athena_path "" \
-  --time_bins 8 \
-  --loss_type motor \
-  --num_threads 50 \
-  --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_0.1_reader
-
-python prepare_motor.py \
-    --pretraining_data /data2/processed_datasets/zj2398/femr/cumc_0.1/tpp \
-    --athena_path "" \
-    --time_bins 8 \
-    --loss_type tpp \
-    --num_threads 32 \
-    --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_0.1_reader
-
-python prepare_motor.py \
-    --pretraining_data /data2/processed_datasets/zj2398/femr/cumc_0.1/mtpp \
-    --athena_path "" \
-    --time_bins 8 \
-    --loss_type mtpp \
-    --num_threads 8 \
-    --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_0.1_reader    
+python prepare.py \
+  --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/survivehr \
+  --ontology_path /data2/processed_datasets/zj2398/femr/cumc/survivehr/ontology.pkl \
+  --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
+  --num_threads 32 \
+  --tokens_per_batch 16384 \
+  --value_count_threshold 1000 \
+  --model transformer \
+  --loss_type survivehr \
+  --hf_cache_path /data2/huggingface/zj2398/
     
 '''
