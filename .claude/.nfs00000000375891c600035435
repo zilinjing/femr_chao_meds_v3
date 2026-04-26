@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Read(//user/zj2398/.cache/huggingface/datasets/generator/**)",
+      "Bash(xargs ls:*)",
+      "Bash(conda env *)",
+      "Bash(PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src /user/zj2398/.conda/envs/tte/bin/python *)",
+      "Bash(nvidia-smi)",
+      "Bash(conda run *)",
+      "Read(//tmp/**)",
+      "Bash(xargs -I{} sh -c 'echo \"{}: $\\(ls {} 2>/dev/null | grep -c '\\\\''\\\\.so'\\\\''\\) so files\"')",
+      "Bash(CUDA_VISIBLE_DEVICES=4,5 NCCL_DEBUG=WARN conda run -n tte accelerate launch --num_processes 2 --num_machines 1 --mixed_precision no /tmp/ddp_smoke.py)",
+      "Bash(CUDA_VISIBLE_DEVICES=4,5,6,7 NCCL_DEBUG=WARN conda run -n tte accelerate launch --num_processes 4 --num_machines 1 --mixed_precision no /tmp/ddp_smoke.py)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

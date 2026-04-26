@@ -15,7 +15,6 @@ from hydra import initialize_config_dir, compose
 from omegaconf import OmegaConf
 from femr.omop_meds_tutorial.evaluation.generate_labels import create_omop_meds_tutorial_arg_parser
 import torch.nn as nn
-from transformers import TrainerCallback
 import wandb
 import datasets
 datasets.disable_caching()
@@ -32,7 +31,7 @@ class CustomEarlyStoppingCallback(transformers.EarlyStoppingCallback):
         operator = np.greater if args.greater_is_better else np.less
         if state.best_metric is None or (
                 operator(metric_value, state.best_metric)
-                and abs(metric_value - state.best_metric) / state.best_metric
+                and abs(metric_value - state.best_metric) / max(abs(state.best_metric), 1e-12)
                 > self.early_stopping_threshold
         ):
             self.early_stopping_patience_counter = 0
@@ -121,37 +120,58 @@ def create_arg_parser():
         type=bool,
         default=False
     )
+    arg_parser.add_argument(
+        "--survivehr_time_scale_days",
+        dest="survivehr_time_scale_days",
+        type=float,
+        default=1.0,
+        help="Scale raw SurviveHR day deltas before the ODE head. Use 1.0 for days.",
+    )
+    arg_parser.add_argument(
+        "--logging_steps",
+        dest="logging_steps",
+        type=int,
+        default=100,
+        help="Log training metrics every N optimizer steps.",
+    )
     return arg_parser
 
 def count_parameters(model: nn.Module) -> int:
     """Counts the number of trainable parameters in a model."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-class WandbTrainLossCallback(transformers.TrainerCallback):
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is None:
+def _unwrap_model(model: nn.Module) -> nn.Module:
+    while hasattr(model, "module"):
+        model = model.module
+    return model
+
+
+class SurviveHRMetricsCallback(transformers.TrainerCallback):
+    def on_log(self, args, state, control, logs=None, model=None, **kwargs):
+        if logs is None or "loss" not in logs:
             return
+        if not getattr(state, "is_world_process_zero", True):
+            return
+        if model is None or wandb.run is None:
+            return
+
+        task_model = getattr(_unwrap_model(model), "task_model", None)
+        metrics = getattr(task_model, "last_metrics", None)
+        if not metrics:
+            return
+
         log_data = {}
-        
-        # Train loss vs step
-        if "loss" in logs:
-            log_data["train/loss_step"] = logs["loss"]
-        
-        # Eval loss vs step
-        if "eval_loss" in logs:
-            log_data["eval/loss_step"] = logs["eval_loss"]
-        
-        # Add epoch-based logging
-        if "loss" in logs:
-            log_data["train/loss_epoch"] = logs["loss"]
-        if "eval_loss" in logs:
-            log_data["eval/loss_epoch"] = logs["eval_loss"]
-        
-        # Record step and epoch for W&B axes
-        log_data["global_step"] = state.global_step
-        log_data["epoch"] = state.epoch
-        
-        wandb.log(log_data)
+        for key, value in metrics.items():
+            if isinstance(value, torch.Tensor):
+                if value.numel() != 1:
+                    continue
+                log_data[key] = value.detach().float().cpu().item()
+            else:
+                log_data[key] = float(value)
+
+        if log_data:
+            log_data["train/global_step"] = state.global_step
+            wandb.log(log_data)
 
 
 def main():
@@ -182,6 +202,9 @@ def main():
     task_path = pretraining_data / f'{task_loss_type}_task.pkl'
     with open(task_path, 'rb') as f:
         task = pickle.load(f)
+    if args.loss_type == "survivehr":
+        task.time_scale_days = args.survivehr_time_scale_days
+        print(f"Using SurviveHR time_scale_days={task.time_scale_days}")
     # print(f"{args.loss_type} task: {task}")
     # print(f"{args.loss_type} task length: {len(task.pretraining_task_codes)}")
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task)
@@ -272,7 +295,7 @@ def main():
         weight_decay=0.05,
         adam_beta2=0.95,
         # report_to="none",
-        report_to = "wandb",
+        report_to="wandb",
         max_grad_norm=args.max_grad_norm,
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
@@ -281,9 +304,8 @@ def main():
 
         warmup_steps=1000,
 
-        logging_strategy='epoch',
-        # logging_strategy='steps',
-        logging_steps=10,
+        logging_strategy='steps',
+        logging_steps=args.logging_steps,
 
         save_strategy='epoch',
         eval_strategy='epoch',
@@ -301,13 +323,17 @@ def main():
     print(f"CONFIRMATION: The actual per_device_train_batch_size is {trainer_config.per_device_train_batch_size}")
 
 
+    callbacks = [CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)]
+    if args.loss_type == "survivehr":
+        callbacks.append(SurviveHRMetricsCallback())
+
     trainer = transformers.Trainer(
         model=model,
         data_collator=processor.collate,
         train_dataset=train_batches,
         eval_dataset=val_batches,
         args=trainer_config,
-        callbacks=[CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)],
+        callbacks=callbacks,
     )
 
     train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
@@ -326,7 +352,7 @@ if __name__ == "__main__":
 
 '''
 
-export CUDA_VISIBLE_DEVICES=1,2
+export CUDA_VISIBLE_DEVICES=5
 
 kuvira
 
@@ -371,7 +397,7 @@ python pretrain.py \
 mimic 
 gsb
 
-CUDA_VISIBLE_DEVICES=4,6 accelerate launch \
+export CUDA_VISIBLE_DEVICES=4,5,6 accelerate launch \
   --num_processes 4 \
   --gpu_ids "4,5,6,7" \
     pretrain.py \
@@ -383,7 +409,7 @@ CUDA_VISIBLE_DEVICES=4,6 accelerate launch \
     --loss_type mtpp_shared
 
 accelerate launch \
-    --num_processes 2 \
+    --num_processes 3 \
     pretrain.py \
     --pretraining_data /user/zj2398/cache/survivehr \
     --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \

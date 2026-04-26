@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Mapping, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 import torch
@@ -60,6 +60,7 @@ class ODESurvMultiple(nn.Module):
         self.K = num_risks
         self.pinet = FCNet(cov_dim, hidden_dim, num_risks, nn.Softmax(dim=1))
         self.odenet = CondODENet(cov_dim + 1, hidden_dim, num_risks, n=n)
+        self.last_metrics: Dict[str, torch.Tensor] = {}
 
     def get_pi(self, x: torch.Tensor) -> torch.Tensor:
         return self.pinet(x)
@@ -75,6 +76,7 @@ class ODESurvMultiple(nn.Module):
         if x.shape[0] == 0:
             return x.new_tensor(0.0)
 
+        self.last_metrics = {}
         if t.dim() == 1:
             t = t.unsqueeze(1)
         k = k.long()
@@ -98,12 +100,26 @@ class ODESurvMultiple(nn.Module):
             dudt_sel = dudt.gather(1, gathered_index).squeeze(1)
             pi_sel = pi.gather(1, gathered_index).squeeze(1)
 
+            log_survival = torch.log(torch.clamp(1.0 - cdf_sel, min=eps))
+            log_dudt = torch.log(torch.clamp(dudt_sel, min=eps))
+            log_pi = torch.log(torch.clamp(pi_sel, min=eps))
             event_ll = (
-                torch.log(torch.clamp(1.0 - cdf_sel, min=eps))
-                + torch.log(torch.clamp(dudt_sel, min=eps))
-                + torch.log(torch.clamp(pi_sel, min=eps))
+                log_survival
+                + log_dudt
+                + log_pi
             )
             total = total + event_ll.sum()
+
+            log_dudt_detached = log_dudt.detach().float()
+            self.last_metrics = {
+                "survivehr/log_survival_mean": log_survival.detach().float().mean(),
+                "survivehr/log_dudt_mean": log_dudt_detached.mean(),
+                "survivehr/log_dudt_p50": torch.quantile(log_dudt_detached, 0.50),
+                "survivehr/log_dudt_p95": torch.quantile(log_dudt_detached, 0.95),
+                "survivehr/log_dudt_p99": torch.quantile(log_dudt_detached, 0.99),
+                "survivehr/log_pi_mean": log_pi.detach().float().mean(),
+                "survivehr/event_ll_mean": event_ll.detach().float().mean(),
+            }
 
         return -total
 
@@ -170,7 +186,6 @@ class GaussianValueHeads(nn.Module):
             patient_log_prob.index_add_(0, token_subjects, token_log_prob)
             token_ll_per_patient = patient_log_prob / (patient_counts + 1e-5)
             total = total + (-token_ll_per_patient.mean())
-
         return total
 
 
@@ -185,7 +200,7 @@ class SurvivEHRCausalTaskHead(nn.Module):
         survival_hidden_dim: int = 32,
         value_hidden_dim: int = 32,
         quadrature_n: int = 15,
-        time_scale_days: float = 365.25,
+        time_scale_days: float = 1,
         concurrent_strategy: Optional[str] = None,
     ):
         super().__init__()
@@ -215,6 +230,7 @@ class SurvivEHRCausalTaskHead(nn.Module):
             numerical_risk_ids=numerical_risk_ids,
             hidden_dim=value_hidden_dim,
         )
+        self.last_metrics: Dict[str, torch.Tensor] = {}
 
     def forward(self, features: torch.Tensor, batch: Mapping[str, torch.Tensor], return_logits: bool = False):
         event_time = batch["event_time"].to(features.device, dtype=features.dtype)
@@ -241,6 +257,15 @@ class SurvivEHRCausalTaskHead(nn.Module):
         loss_surv = self.survival_model.loss(features, event_time, event_label) / max(event_label.shape[0], 1)
         loss_values = self.value_model.loss(features, event_label, event_value, value_mask, label_subject_ids)
         total_loss = (self.surv_weight * loss_surv) + (self.value_weight * loss_values)
+
+        self.last_metrics = dict(self.survival_model.last_metrics)
+        self.last_metrics.update(
+            {
+                "survivehr/loss_surv": loss_surv.detach(),
+                "survivehr/loss_values": loss_values.detach(),
+                "survivehr/loss_total": total_loss.detach(),
+            }
+        )
 
         result = {}
         if return_logits:
