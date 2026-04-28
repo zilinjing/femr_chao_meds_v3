@@ -159,6 +159,7 @@ bash run_linear_prob_with_few_shots.sh \
 --model_name motor_linear_probing
 
 
+false name
 bash run_linear_prob_with_few_shots.sh \
 --base_dir /data/results/zj2398/fomoh/mimic/linear_probing/llama_float32 \
 --output_dir /data/results/zj2398/fomoh/mimic/results \
