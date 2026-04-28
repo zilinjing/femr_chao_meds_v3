@@ -5,22 +5,10 @@
 - `tests/` — pytest suite organized by package area (e.g., `tests/models/`).
 - `tools/` — utility scripts (e.g., Stanford OMOP helpers).
 - `tutorials/` — notebooks and examples; excluded from some lint checks.
-- CLI entry point: `femr_stanford_omop_fixer` (see README for usage).
 
 ## Build, Test, and Development Commands
-- Dev install: `python -m venv .venv && source .venv/bin/activate`
-  then `pip install -e '.[build]'`.
-- Lint/format (via pre-commit): `pre-commit install && pre-commit run --all-files`.
-- Standalone checks: `flake8`, `black --check .`, `isort --check-only .`, `mypy src/`.
-- Auto-format: `black . && isort .`.
-- Tests: `pytest -q` (use `-k <pattern>` to filter). Pytest is configured via `pyproject.toml`.
-- Build distribution (optional): `python -m build`.
+- Dev activate: `python conda activate tte`
 
-## Coding Style & Naming Conventions
-- Python 3.10 target; 4-space indentation; max line length 120.
-- Use type hints; `py.typed` is shipped and MyPy runs in stricter mode for `femr`.
-- Naming: modules/functions `snake_case`, classes `PascalCase`, constants `UPPER_CASE`.
-- Tools/config: Black (`line_length=120`), isort (profile in `pyproject.toml`), Flake8 (see `.flake8` ignores), MyPy (`.mypy.ini`).
 
 ## Testing Guidelines
 - Framework: pytest. Place tests under `tests/` mirroring package paths.
@@ -28,15 +16,30 @@
 - Add unit tests for new logic and regression tests for fixed bugs.
 - Prefer small, deterministic tests; use fixtures in `tests/femr_test_tools.py` when applicable.
 
-## Commit & Pull Request Guidelines
-- Commit messages: use imperative mood and concise scope, e.g., `feat(models): add RMSNorm`. Reference issues when relevant.
-- Keep commits focused; include code, tests, and docs together.
-- PRs must include: clear description, rationale, test coverage notes, and any CLI examples (e.g., data paths redacted). Add logs/screens if touching training/evaluation.
-- Ensure `pre-commit` passes and CI is green before requesting review.
 
 ## Security & Configuration Tips
 - Do not commit PHI, datasets, or large artifacts (wandb runs, logs). Use `.gitignore` and environment variables for paths/secrets.
 - Reproducibility: record seeds, versions, and command lines in PR descriptions for modeling changes.
+
+## Communication style
+- Be objective, rigorous, and critical.
+- Do not flatter, overpraise, or agree too quickly.
+- Maintain a sober, evidence-seeking tone when discussing ideas; do not present speculative claims as established facts.
+
+## Workflow
+- Do not rely only on internal model knowledge for research discussions when external evidence is important.
+
+## Coding workflow
+- Before writing substantial code, first propose a minimal implementation plan.
+- Prefer the smallest runnable slice first.
+- Keep changes localized unless a broader refactor is explicitly requested.
+
+## Tool usage
+- Use external tools such as GitHub or paper/document access when external evidence is needed.
+- When discussing ideas, related work, or external implementations, proactively search for relevant evidence when it is likely to improve accuracy or sharpen criticism.
+- Use subagents only for clearly separable tasks.
+- Avoid spawning subagents for casual brainstorming or small edits.
+- For complex tasks, it is acceptable to spawn a small number of subagents when doing so materially improves parallel exploration, implementation, or verification.
 
 
 # Coding instruction
@@ -44,6 +47,7 @@
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
 
 ## 1. Think Before Coding
 

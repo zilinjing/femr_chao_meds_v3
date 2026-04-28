@@ -330,9 +330,7 @@ for TASK_DIR in "$CLASS_COHORT"*/; do
     # Build the evaluation command
     EVAL_CMD="meds-evaluation-cli predictions_path=\"$MOTOR_PREDICTION_FOLDER\" \
       output_dir=\"$MOTOR_OUTPUT_DIR\""
-    # Build the evaluation command
-    EVAL_CMD="meds-evaluation-cli predictions_path=\"$MOTOR_PREDICTION_FOLDER\" \
-      output_dir=\"$MOTOR_OUTPUT_DIR\""
+
 
     # Run the third command to compute the metrics
     echo "Running meds-evaluation for $TASK_NAME..."
@@ -363,7 +361,7 @@ echo "All tasks processed."
 
 
 # phenotype
-# export CUDA_VISIBLE_DEVICES=0
+# export CUDA_VISIBLE_DEVICES=5
 
 # /shared/share_mala/zj2398/models/mtpp_8k/mtpp_8k_T_8_V_10/transformer/best-100620
 
@@ -371,42 +369,60 @@ echo "All tasks processed."
 # bash run.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
 #   --num_proc           24 \
-#   --model_path         /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer/best_112686 \
-#   --model_name         transformer_mtpp_T_16_V_5 \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer/best_106635 \
+#   --model_name         transformer_mtpp_all_6k_nonmuerical \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --use_ntp            no \
 #   --cohort_type        phenotype \
 #   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
-#   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv \
+#   --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
+#   --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/phenotype_task  \
-#   --truncation   330 \
+#   --truncation   300 \
 #   --observation_window 730 \
 #   --classification_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/binary/ \
-#   --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte/
-#   --masld,stroke
+#   --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte/ 
 
-# outcome
+#   --ami,masld,stroke
+
 # bash run.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
 #   --num_proc           32 \
-#   --model_path         /user/zj2398/cache/mtpp_8k_numerical_only/best_100570 \
-#   --model_name         transformer_numerical_only \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer/best_106635 \
+#   --model_name         transformer_mtpp_all_6k_nonmuerical \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --use_ntp            no \
 #   --cohort_type        outcome \
 #   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
-#   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv  \
+#   --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
+#   --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
 #   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ \
-#   in_hospital_mortality
 
-# long_los  
+
+# outcome
+# bash run.sh \
+#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
+#   --num_proc           32 \
+#   --model_path         /user/zj2398/cache/survivehr/transformer/best_64953 \
+#   --model_name         transformer_survivehr \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --use_ntp            yes \
+#   --cohort_type        outcome \
+#   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
+#   --min_subjects_per_batch 8 \
+#   --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
+#   --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
+#   --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
+#   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ \
+#   readmission
+
+# in_hospital_mortality  long_los  readmission
 
 
 

@@ -403,13 +403,26 @@ python prepare.py \
   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
 
 python prepare.py \
+  --pretraining_data /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume \
+  --ontology_path /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/ontology.pkl \
+  --time_bins 8 \
+  --num_threads 32 \
+  --value_bins 5 \
+  --num_final_tasks 6100 \
+  --tokens_per_batch 16384 \
+  --model mamba \
+  --loss_type mtpp \
+  --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets \
+  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
+
+python prepare.py \
   --pretraining_data /user/zj2398/cache/survivehr \
   --ontology_path /user/zj2398/cache/survivehr/ontology.pkl \
   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
   --num_threads 32 \
   --tokens_per_batch 16384 \
   --value_count_threshold 1000 \
-  --model transformer \
+  --model mamba \
   --loss_type survivehr \
   --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets
 

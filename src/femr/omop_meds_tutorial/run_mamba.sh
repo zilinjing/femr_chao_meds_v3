@@ -75,12 +75,12 @@ python prepare.py \
   #   --n_layers 28 \
   #   --loss_type mtpp_shared
 
-# export CUDA_VISIBLE_DEVICES=4,5,6,7
+# export CUDA_VISIBLE_DEVICES=4,5
   accelerate launch \
     --num_processes 4 \
     pretrain.py \
     --pretraining_data  /user/zj2398/cache/mtpp_all_shared_6100_bin_5 \
-    --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+    --meds_reader xxx \
     --per_device_train_batch_size 1 \
     --learning_rate 2e-4 \
     --max_grad_norm 5.0 \
@@ -89,6 +89,36 @@ python prepare.py \
     --model mamba \
     --n_layers 28 \
     --loss_type mtpp_shared
+
+  accelerate launch \
+    --num_processes 3 \
+    pretrain.py \
+    --pretraining_data /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume \
+    --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+    --learning_rate 2e-4 \
+    --max_grad_norm 5.0 \
+    --per_device_train_batch_size 1 \
+    --output_dir /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/mamba  \
+    --model mamba \
+    --loss_type mtpp_shared \
+    --n_epochs 20 \
+    --n_layers 28 \
+    --hf_run_name mimic_mtpp_all_nonnumerical_mamba_2e-4_5.0 
+
+accelerate launch \
+    --num_processes 2 \
+    pretrain.py \
+    --pretraining_data /user/zj2398/cache/survivehr \
+    --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
+    --learning_rate 2e-4 \
+    --max_grad_norm 5.0 \
+    --per_device_train_batch_size 1 \
+    --output_dir /user/zj2398/cache/survivehr/mamba \
+    --model mamba \
+    --loss_type survivehr \
+    --n_epochs 20 \
+    --n_layers 28 \
+    --hf_run_name mimic_survivehr_mamba_2e-4_5.0_value_1000
 
   # python pretrain.py  \
   # --pretraining_data /user/zj2398/cache/mtpp_all_shared_6100_bin_5   \

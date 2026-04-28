@@ -17,6 +17,9 @@ from femr.omop_meds_tutorial.evaluation.generate_labels import create_omop_meds_
 import torch.nn as nn
 import wandb
 import datasets
+import logging 
+
+
 datasets.disable_caching()
 
 from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
@@ -24,6 +27,8 @@ from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
 from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
 from femr.models.tasks.survivehr_task import SurvivEHRTask as SurvivEHRTask
+
+logger = logging.getLogger(__name__)
 
 class CustomEarlyStoppingCallback(transformers.EarlyStoppingCallback):
     def check_metric_value(self, args, state, control, metric_value):
@@ -110,7 +115,7 @@ def create_arg_parser():
         "--loss_type",
         dest="loss_type",
         type=str,
-        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr"],
+        choices=["motor", "tpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr"],
         default="motor",
         required=True,
     )
@@ -176,6 +181,11 @@ class SurviveHRMetricsCallback(transformers.TrainerCallback):
 
 def main():
     args = create_arg_parser().parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        stream=sys.stdout,
+    )
     pretraining_data = pathlib.Path(args.pretraining_data)
 
     ontology_path = pretraining_data / 'ontology.pkl'
@@ -273,10 +283,12 @@ def main():
 
     print(f"tokenizer vocab is {tokenizer.vocab_size}")
     print(f"embedding bag {model.backbone.embed_bag}")
-    # sys.exit(0)
 
-    print(f"Model param count: {count_parameters(model)}")
-    # print(f"model config is {model_config}") 
+    # print(f"Model param count: {count_parameters(model)}")
+    param_count = count_parameters(model)
+    logger.info("Model param count: %s", param_count)
+    if wandb.run is not None:
+        wandb.run.summary["model/param_count"] = param_count
 
     learning_rate = args.learning_rate
     # output_dir = 'tmp_trainer_' + sys.argv[1]
@@ -352,11 +364,11 @@ if __name__ == "__main__":
 
 '''
 
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=3,4,5
 
 kuvira
 
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1,2
 
 accelerate launch \
   --num_processes 4 \
@@ -364,13 +376,24 @@ accelerate launch \
     --pretraining_data  /data2/processed_datasets/zj2398/femr/mimic/mtpp  \
     --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
     --per_device_train_batch_size 1 \
-    --learning_rate 1e-5 \
+    --learning_rate 2e-4 \
     --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp/mamba  \
     --hf_run_name mimic_mamba_revised_mtpp_6100 \
     --max_grad_norm 1.0 \
     --model mamba \
     --n_layers 28 \
     --loss_type mtpp_shared
+
+accelerate launch \
+    --num_processes 3 \
+    pretrain.py \
+    --pretraining_data /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume \
+    --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+    --per_device_train_batch_size 1 \
+    --output_dir /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer_test  \
+    --model transformer \
+    --loss_type mtpp_shared \
+    --hf_run_name mimic_mtpp_all_nonnumerical_test
 
 accelerate launch \
   --num_processes 2 \
@@ -383,32 +406,9 @@ accelerate launch \
     --model transformer \
     --loss_type motor
 
-    
-accelerate launch \
-    --num_processes 2 \
-    pretrain.py \
-    --pretraining_data /user/zj2398/cache/survivehr \
-    --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
-    --output_dir /user/zj2398/cache/survivehr/transformer \
-    --model transformer \
-    --loss_type survivehr \
-    --learning_rate 1e-5 \
-    --n_epochs 20 \
-    --hf_run_name mimic_survivehr_transformer_value_1000
 
 
 
-accelerate launch \
-  --num_processes 2 \
-    pretrain.py \
-    --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/survivehr \
-    --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
-    --output_dir /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer  \
-    --model transformer \
-    --loss_type survivehr \
-    --learning_rate 1e-5 \
-    --n_epochs 20 \
-    --hf_run_name cumc_survivehr_transformer_value_1000
 
 mimic 
 gsb
@@ -419,25 +419,13 @@ accelerate launch \
     pretrain.py \
     --pretraining_data /user/zj2398/cache/survivehr \
     --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
-    --output_dir /user/zj2398/cache/survivehr/transformer \
+    --output_dir /user/zj2398/cache/survivehr/transformer_test \
     --model transformer \
     --loss_type survivehr \
     --learning_rate 1e-5 \
     --n_epochs 20 \
     --hf_run_name mimic_survivehr_transformer_value_1000
 
-
-    
-python pretrain_motor.py \
-  --pretraining_data /user/zj2398/cache/mtpp_8k \
-  --meds_reader /user/zj2398/cache/hf_ehr/mimic/meds_v0.6_reader \
-  --checkpoint_dir /user/zj2398/cache/mtpp_8k/output_mamba_store/checkpoint-53660 \
-  --per_device_train_batch_size 1 \
-  --output_dir /user/zj2398/cache/mtpp_8k/output_mamba \
-  --model mamba \
-  --loss_type mtpp \
-  --learning_rate e-6 \
-  --n_layers 12
 
 
 

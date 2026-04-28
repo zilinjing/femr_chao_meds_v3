@@ -1432,8 +1432,8 @@ class FEMRModel(transformers.PreTrainedModel):
             return MOTORTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "tpp":
             return TPPTaskHead(self.hidden_size, **task_kwargs)
-        elif self.loss_type == "mtpp":
-            return MTPPTaskHead(self.hidden_size, **task_kwargs)
+        # elif self.loss_type == "mtpp":
+        #     return MTPPTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "mtpp_shared":
             return MTPPSharedTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "mtpp_value":
