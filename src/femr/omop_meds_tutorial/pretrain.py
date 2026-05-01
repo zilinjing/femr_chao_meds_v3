@@ -352,7 +352,7 @@ def main():
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
-        ddp_find_unused_parameters=(args.loss_type in ("survivehr", "icarefm")),
+        ddp_find_unused_parameters=(args.loss_type == "survivehr"),
 
         warmup_steps=1000,
 

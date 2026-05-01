@@ -1400,18 +1400,15 @@ class ICareFMTaskHead(nn.Module):
         # query. This is the second half of the ICareFM condition vector.
         self.direction_embeddings = nn.Embedding(2, condition_size)
 
-        # MLP_k is variable-specific in the paper. ModuleList keeps one small
-        # head per target code; each maps concat(H_t, condition_k) -> T_surv
-        # hazard logits.
-        self.heads = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Linear(hidden_size * 2, hidden_size),
-                    nn.SiLU(),
-                    nn.Linear(hidden_size, self.t_surv),
-                )
-                for _ in target_codes
-            ]
+        # Deviation from the paper: a single shared MLP across all target codes.
+        # Per-code differentiation is carried entirely by `threshold_embeddings`
+        # (the u_k vectors) and `direction_embeddings` in the condition vector,
+        # which avoids the ~num_targets x hidden^2 parameter blowup of per-code
+        # heads (1.3B -> ~1.2M for hidden=768, t_surv=48).
+        self.head = nn.Sequential(
+            nn.Linear(hidden_size * 2, hidden_size),
+            nn.SiLU(),
+            nn.Linear(hidden_size, self.t_surv),
         )
         self.last_metrics: Dict[str, torch.Tensor] = {}
 
@@ -1448,14 +1445,7 @@ class ICareFMTaskHead(nn.Module):
             dim=1,
         )
 
-        # Run only the variable-specific heads needed by this batch. This is why
-        # ICareFM uses `ddp_find_unused_parameters=True` in pretrain.py.
-        logits = features.new_empty((query_anchor_idx.shape[0], self.t_surv))
-        for target_idx in torch.unique(query_target_idx, sorted=True):
-            target_mask = query_target_idx == target_idx
-            # logits[target_mask] = self.heads[int(target_idx.item())](head_input[target_mask])
-            out = self.heads[int(target_idx.item())](head_input[target_mask])                                                              
-            logits[target_mask] = out.to(logits.dtype)  
+        logits = self.head(head_input).to(features.dtype)
 
         # BCEWithLogits is the stable form of
         # y*log(sigmoid(logit)) + (1-y)*log(1-sigmoid(logit)).
