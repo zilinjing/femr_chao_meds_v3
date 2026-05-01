@@ -18,6 +18,7 @@ from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
 from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
 from femr.models.tasks.survivehr_task import SurvivEHRTask
+from femr.models.tasks.icarefm_task import ICareFMTask
 
 
 def main(args):
@@ -71,7 +72,7 @@ def main(args):
         tokenizer_path = pretraining_data_path / 'tokenizer'
         if not tokenizer_path.exists():
             print("Train tokenizer")
-            if args.loss_type in ("ntp", "survivehr"):
+            if args.loss_type in ("ntp", "survivehr", "icarefm"):
                 tokenizer = CLMBRTokenizer.train(
                     main_database,
                     vocab_size=args.vocab_size,
@@ -87,7 +88,7 @@ def main(args):
             tokenizer.save_pretrained(tokenizer_path)
         else:
             print(f"Loading tokenizer {args.loss_type}")
-            if args.loss_type in ("ntp", "survivehr"):
+            if args.loss_type in ("ntp", "survivehr", "icarefm"):
                 tokenizer = CLMBRTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
             else:
                 tokenizer = HierarchicalTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
@@ -148,6 +149,13 @@ def main(args):
             elif args.loss_type == "survivehr":
                 print("survivehr choosen")
                 task = SurvivEHRTask.fit_pretraining_task_info(
+                    main_database,
+                    tokenizer,
+                    value_count_threshold=args.value_count_threshold,
+                )
+            elif args.loss_type == "icarefm":
+                print("icarefm choosen")
+                task = ICareFMTask.fit_pretraining_task_info(
                     main_database,
                     tokenizer,
                     value_count_threshold=args.value_count_threshold,
@@ -362,7 +370,7 @@ def create_omop_meds_tutorial_argparser():
         dest="loss_type",
         action="store",
         required=True,
-        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr"],
+        choices=["motor", "tpp", "mtpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr", "icarefm"],
         type=str,
         default=8,
     )
@@ -409,7 +417,7 @@ python prepare.py \
   --num_threads 32 \
   --value_bins 5 \
   --num_final_tasks 6100 \
-  --tokens_per_batch 16384 \
+  --tokens_per_batch 8192 \
   --model mamba \
   --loss_type mtpp \
   --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets \
@@ -424,6 +432,17 @@ python prepare.py \
   --value_count_threshold 1000 \
   --model mamba \
   --loss_type survivehr \
+  --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets
+
+python prepare.py \
+  --pretraining_data /user/zj2398/cache/icarefm \
+  --ontology_path /user/zj2398/cache/icarefm/ontology.pkl \
+  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+  --num_threads 32 \
+  --tokens_per_batch 16384 \
+  --value_count_threshold 1000 \
+  --model mamba \
+  --loss_type icarefm \
   --hf_cache_path /shared/share_mala/zj2398/huggingface/datasets
 
 kuvira mimic
@@ -442,17 +461,6 @@ python prepare.py \
   --meds_reader  /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader
 
 
-kuvira cumc 0.1
-
-python prepare_mtpp.py \
-  --pretraining_data /data2/processed_datasets/zj2398/femr/cumc_0.1/mtpp_7399 \
-  --athena_path "" \
-  --num_final_tasks 7399 \
-  --time_bins 8 \
-  --loss_type mtpp \
-  --num_threads 40 \
-  --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_0.1_reader
-
 kuvira cumc
 
 python prepare.py \
@@ -465,5 +473,6 @@ python prepare.py \
   --model transformer \
   --loss_type survivehr \
   --hf_cache_path /data2/huggingface/zj2398/
+
     
 '''

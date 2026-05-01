@@ -5,6 +5,7 @@ import torch
 import sys
 import time
 import json
+import copy
 import femr.models.architecture.transformer
 import femr.models.architecture.embedding
 import pickle
@@ -27,6 +28,7 @@ from femr.models.tasks.tpp import TPP_Task as TPP_Task
 from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
 from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
 from femr.models.tasks.survivehr_task import SurvivEHRTask as SurvivEHRTask
+from femr.models.tasks.icarefm_task import ICareFMTask as ICareFMTask
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,13 @@ def create_arg_parser():
         default=1
     )
     arg_parser.add_argument(
+        "--gradient_accumulation_steps",
+        dest="gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of microbatches to accumulate before each optimizer step.",
+    )
+    arg_parser.add_argument(
         "--model",
         dest="model",
         type=str,
@@ -115,7 +124,7 @@ def create_arg_parser():
         "--loss_type",
         dest="loss_type",
         type=str,
-        choices=["motor", "tpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr"],
+        choices=["motor", "tpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr", "icarefm"],
         default="motor",
         required=True,
     )
@@ -138,6 +147,13 @@ def create_arg_parser():
         type=int,
         default=100,
         help="Log training metrics every N optimizer steps.",
+    )
+    arg_parser.add_argument(
+        "--icarefm_eval_seed",
+        dest="icarefm_eval_seed",
+        type=int,
+        default=42,
+        help="Deterministic dynamic-threshold seed for ICareFM validation collation.",
     )
     return arg_parser
 
@@ -179,6 +195,23 @@ class SurviveHRMetricsCallback(transformers.TrainerCallback):
             wandb.log(log_data)
 
 
+class SeparateEvalCollatorTrainer(transformers.Trainer):
+    def __init__(self, *args, eval_data_collator=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.eval_data_collator = eval_data_collator
+
+    def get_eval_dataloader(self, eval_dataset=None):
+        if self.eval_data_collator is None:
+            return super().get_eval_dataloader(eval_dataset)
+
+        train_collator = self.data_collator
+        self.data_collator = self.eval_data_collator
+        try:
+            return super().get_eval_dataloader(eval_dataset)
+        finally:
+            self.data_collator = train_collator
+
+
 def main():
     args = create_arg_parser().parse_args()
     logging.basicConfig(
@@ -193,7 +226,7 @@ def main():
         ontology = pickle.load(f)
 
     tokenizer_path = pretraining_data / 'tokenizer'
-    if args.loss_type in ("ntp", "survivehr"):
+    if args.loss_type in ("ntp", "survivehr", "icarefm"):
         tokenizer = femr.models.tokenizer.CLMBRTokenizer.from_pretrained(
             tokenizer_path, ontology=ontology
         )
@@ -218,6 +251,12 @@ def main():
     # print(f"{args.loss_type} task: {task}")
     # print(f"{args.loss_type} task length: {len(task.pretraining_task_codes)}")
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task)
+    eval_processor = processor
+    if args.loss_type == "icarefm":
+        eval_task = copy.deepcopy(task)
+        eval_task.threshold_seed = args.icarefm_eval_seed
+        eval_processor = femr.models.processor.FEMRBatchProcessor(tokenizer, eval_task)
+        print(f"Using ICareFM eval threshold seed={args.icarefm_eval_seed}")
 
     # Choose dataset packaging based on model
     if args.model == "mamba":
@@ -297,6 +336,7 @@ def main():
     trainer_config = transformers.TrainingArguments(
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
 
         learning_rate=learning_rate,
         output_dir=output_dir,
@@ -312,7 +352,7 @@ def main():
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
-        ddp_find_unused_parameters=(args.loss_type == "survivehr"),
+        ddp_find_unused_parameters=(args.loss_type in ("survivehr", "icarefm")),
 
         warmup_steps=1000,
 
@@ -333,15 +373,17 @@ def main():
         greater_is_better=False,
     )
     print(f"CONFIRMATION: The actual per_device_train_batch_size is {trainer_config.per_device_train_batch_size}")
+    print(f"CONFIRMATION: The actual gradient_accumulation_steps is {trainer_config.gradient_accumulation_steps}")
 
 
     callbacks = [CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)]
-    if args.loss_type == "survivehr":
+    if args.loss_type in ("survivehr", "icarefm"):
         callbacks.append(SurviveHRMetricsCallback())
 
-    trainer = transformers.Trainer(
+    trainer = SeparateEvalCollatorTrainer(
         model=model,
         data_collator=processor.collate,
+        eval_data_collator=eval_processor.collate if args.loss_type == "icarefm" else None,
         train_dataset=train_batches,
         eval_dataset=val_batches,
         args=trainer_config,
@@ -364,7 +406,7 @@ if __name__ == "__main__":
 
 '''
 
-export CUDA_VISIBLE_DEVICES=3,4,5
+export CUDA_VISIBLE_DEVICES=2
 
 kuvira
 
@@ -410,21 +452,6 @@ accelerate launch \
 
 
 
-mimic 
-gsb
-
-
-accelerate launch \
-    --num_processes 3 \
-    pretrain.py \
-    --pretraining_data /user/zj2398/cache/survivehr \
-    --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
-    --output_dir /user/zj2398/cache/survivehr/transformer_test \
-    --model transformer \
-    --loss_type survivehr \
-    --learning_rate 1e-5 \
-    --n_epochs 20 \
-    --hf_run_name mimic_survivehr_transformer_value_1000
 
 
 

@@ -10,7 +10,7 @@ from datetime import datetime
 # ==================== CONFIGURATION ====================
 COHORT_DIR = Path("/shared/share_mala/zj2398/mimic/regression/cohort/icu_stay_4h/")
 SPLIT_PATH = "/user/zj2398/cache/mtpp_8k/main_split.csv"
-MEDS_PATH = "/shared/share_mala/zj2398/mimic/meds_v0.6_reader"
+MEDS_PATH = "/shared/share_mala/zj2398/mimic/data/meds_v0.6_reader"
 OUTPUT_DIR = Path("./baseline_results")
 OUTPUT_DIR.mkdir(exist_ok=True)
 

@@ -1358,6 +1358,130 @@ class MTPPValueTaskHead(nn.Module):
             loss = total_loss / total_count
 
         return loss, result
+
+
+class ICareFMTaskHead(nn.Module):
+    """Paper-style ICareFM hazard head for dynamically sampled threshold queries.
+
+    `ICareFMTask.cleanup` produces query rows of the form
+    `(anchor_index, target_code_index, tau, direction, y, weight)`. This head
+    turns the anchor history representation and query condition into T_surv
+    hourly hazard logits, then applies the globally normalized masked BCE from
+    the implementation plan. The current task cleanup samples `tau` and
+    `direction` independently for every materialized query row.
+    """
+
+    def __init__(
+        self,
+        hidden_size: int,
+        target_codes: List[str],
+        t_surv: int = 48,
+        tau_max: float = 4.0,
+    ):
+        super().__init__()
+        # Supplement B.3 uses a d/2 variable embedding and a d/2 direction
+        # embedding, then concatenates them into a d-dimensional condition.
+        if hidden_size % 2 != 0:
+            raise ValueError("ICareFMTaskHead requires an even hidden_size for the paper's d/2 conditioning split.")
+        if len(target_codes) == 0:
+            raise ValueError("ICareFMTaskHead requires at least one target code.")
+
+        self.num_targets = len(target_codes)
+        self.t_surv = int(t_surv)
+        self.tau_max = float(tau_max)
+        condition_size = hidden_size // 2
+
+        # One learnable u_k vector per numerical target code. During forward,
+        # tau scales the selected u_k so the condition changes continuously with
+        # the sampled threshold magnitude.
+        self.threshold_embeddings = nn.Embedding(self.num_targets, condition_size)
+
+        # Direction 1 means high-threshold query, direction 0 means low-threshold
+        # query. This is the second half of the ICareFM condition vector.
+        self.direction_embeddings = nn.Embedding(2, condition_size)
+
+        # MLP_k is variable-specific in the paper. ModuleList keeps one small
+        # head per target code; each maps concat(H_t, condition_k) -> T_surv
+        # hazard logits.
+        self.heads = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(hidden_size * 2, hidden_size),
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, self.t_surv),
+                )
+                for _ in target_codes
+            ]
+        )
+        self.last_metrics: Dict[str, torch.Tensor] = {}
+
+    def forward(self, features: torch.Tensor, batch: Mapping[str, torch.Tensor], return_logits: bool = False):
+        """Compute masked dynamic-threshold BCE for one collated ICareFM batch."""
+        query_anchor_idx = batch["query_anchor_idx"].to(device=features.device, dtype=torch.long)
+        if query_anchor_idx.numel() == 0:
+            # Keep the zero loss connected to the graph so distributed/mixed
+            # precision training handles empty-query batches cleanly.
+            loss = features.sum() * 0.0
+            self.last_metrics = {
+                "icarefm/num_queries": features.new_tensor(0.0),
+                "icarefm/valid_weights": features.new_tensor(0.0),
+                "icarefm/event_fraction": features.new_tensor(0.0),
+            }
+            return loss, {"icarefm_logits": None}
+
+        # Query tensors are produced on CPU by the collator; move them to the
+        # same device/dtype as the backbone features for head computation.
+        query_target_idx = batch["query_target_idx"].to(device=features.device, dtype=torch.long)
+        query_tau = batch["query_tau"].to(device=features.device, dtype=features.dtype).unsqueeze(1)
+        query_direction = batch["query_direction"].to(device=features.device, dtype=torch.long)
+        y = batch["query_y"].to(device=features.device, dtype=features.dtype)
+        weight = batch["query_weight"].to(device=features.device, dtype=features.dtype)
+
+        # Build condition_k = concat(tau * u_k, direction_embedding[delta]).
+        threshold_condition = query_tau * self.threshold_embeddings(query_target_idx)
+        direction_condition = self.direction_embeddings(query_direction)
+
+        # `features` has already been narrowed to `label_indices` in FEMRModel,
+        # so query_anchor_idx indexes rows within that selected-anchor tensor.
+        head_input = torch.cat(
+            (features[query_anchor_idx], threshold_condition, direction_condition),
+            dim=1,
+        )
+
+        # Run only the variable-specific heads needed by this batch. This is why
+        # ICareFM uses `ddp_find_unused_parameters=True` in pretrain.py.
+        logits = features.new_empty((query_anchor_idx.shape[0], self.t_surv))
+        for target_idx in torch.unique(query_target_idx, sorted=True):
+            target_mask = query_target_idx == target_idx
+            # logits[target_mask] = self.heads[int(target_idx.item())](head_input[target_mask])
+            out = self.heads[int(target_idx.item())](head_input[target_mask])                                                              
+            logits[target_mask] = out.to(logits.dtype)  
+
+        # BCEWithLogits is the stable form of
+        # y*log(sigmoid(logit)) + (1-y)*log(1-sigmoid(logit)).
+        loss_values = F.binary_cross_entropy_with_logits(logits, y, reduction="none")
+        valid_weights = weight.sum()
+        if valid_weights.item() == 0:
+            loss = features.sum() * 0.0
+        else:
+            # Global masked normalization over all valid query-bin observations.
+            loss = (loss_values * weight).sum() / (valid_weights + 1e-8)
+
+        with torch.no_grad():
+            # These metrics are consumed by the existing training callback.
+            self.last_metrics = {
+                "icarefm/num_queries": features.new_tensor(float(query_anchor_idx.numel())),
+                "icarefm/valid_weights": valid_weights.detach(),
+                "icarefm/event_fraction": ((y * weight).sum() / (valid_weights + 1e-8)).detach(),
+                "icarefm/logit_mean": logits.detach().float().mean(),
+            }
+
+        result = {}
+        if return_logits:
+            # Keep logits optional to avoid retaining large tensors during normal
+            # Trainer loss-only training.
+            result["icarefm_logits"] = logits
+        return loss, result
     
 def remove_first_dimension(data: Any) -> Any:
     if isinstance(data, collections.abc.Mapping):
@@ -1440,6 +1564,8 @@ class FEMRModel(transformers.PreTrainedModel):
             return MTPPValueTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "survivehr":
             return SurvivEHRCausalTaskHead(self.hidden_size, **task_kwargs)
+        elif self.loss_type == "icarefm":
+            return ICareFMTaskHead(self.hidden_size, **task_kwargs)
         else:
             raise RuntimeError("Could not determine head for task " + self.loss_type)
 

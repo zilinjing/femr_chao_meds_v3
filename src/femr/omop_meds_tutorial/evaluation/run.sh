@@ -361,7 +361,7 @@ echo "All tasks processed."
 
 
 # phenotype
-# export CUDA_VISIBLE_DEVICES=5
+# export CUDA_VISIBLE_DEVICES=2
 
 # /shared/share_mala/zj2398/models/mtpp_8k/mtpp_8k_T_8_V_10/transformer/best-100620
 
@@ -389,7 +389,7 @@ echo "All tasks processed."
 
 # bash run.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
-#   --num_proc           32 \
+#   --num_proc           24 \
 #   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer/best_106635 \
 #   --model_name         transformer_mtpp_all_6k_nonmuerical \
 #   --tokens_per_batch   65536 \
@@ -401,7 +401,7 @@ echo "All tasks processed."
 #   --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
 #   --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
-#   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ \
+#   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ 
 
 
 # outcome

@@ -212,105 +212,27 @@ done
 echo "All selected tasks processed."
 
 #export CUDA_VISIBLE_DEVICES=2
-# bilirubin,creatinine,pao2,platelets
-
-#platelets, glucose
-
-# bash run_regression.sh \
-#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-#   --num_proc           24 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer/best_100570 \
-#   --model_name         transformer_numerical_only \
-#   --tokens_per_batch   65536 \
-#   --device             cuda:0 \
-#   --min_subjects_per_batch 8 \
-#   --ontology_path      /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl \
-#   --main_split_path    /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/main_split.csv \
-#   --cohort_dir   /data2/processed_datasets/mimic/regression/icu_stay_4h_100k/ \
-#   --output_dir   /data/results/zj2398/femr/mimic/regression \
-#   --use_ntp no \
-#   --cache_path /data2/huggingface/zj2398/ \
-#   --tasks "pao2,platelets" \
-#   --regression 
-
-# creatinine,glucose
+# glucose,creatinine,pao2,platelets
 
 # bash run_regression.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-#   --num_proc           32 \
-#   --model_path         /user/zj2398/cache/survivehr/transformer/best_64953 \
-#   --model_name         transformer_survivehr \
+#   --num_proc           24 \
+#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer/best_106635 \
+#   --model_name         transformer_mtpp_all_6k_nonmuerical \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
-#   --use_ntp yes \
+#   --use_ntp no \
 #   --min_subjects_per_batch 8 \
 #   --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
 #   --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
 #   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
 #   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
-#   --tasks "glucose,creatinine" \
+#   --tasks "glucose,creatinine,pao2,platelets" \
 #   --regression 
 
 # glucose,creatinine
 # pao2,platelets
-
-
-# bash run_regression.sh \
-#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-#   --num_proc           24 \
-#   --model_path         /user/zj2398/cache/mtpp_8k_T_16_V_5/transformer/best_112686 \
-#   --model_name         transformer_mtpp_T_16_V_5 \
-#   --tokens_per_batch   65536 \
-#   --device             cuda:0 \
-#   --min_subjects_per_batch 8 \
-#   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
-#   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv \
-#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
-#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
-#   --use_ntp no \
-#   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
-#   --tasks "pao2,platelets,creatinine" \
-#   --regression 
-
-
-
-
-
-# bash run_regression.sh \
-#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-#   --num_proc           24 \
-#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5/mamba/best-69888 \
-#   --model_name         mamba_mtpp \
-#   --tokens_per_batch   65536 \
-#   --device             cuda:0 \
-#   --min_subjects_per_batch 8 \
-#   --ontology_path      /user/zj2398/cache/mtpp_8k_T_8_V_5/ontology.pkl \
-#   --main_split_path    /user/zj2398/cache/mtpp_8k_T_8_V_5/main_split.csv \
-#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
-#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
-#   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
-#   --use_ntp no \
-#   --tasks "glucose" \
-#   --regression 
-
-
-# bash run_regression.sh \
-#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-#   --num_proc           32 \
-#   --model_path         /shared/share_mala/zj2398/models/ntp_8k/mamba/best_404760 \
-#   --model_name         mamba_ntp \
-#   --tokens_per_batch   65536 \
-#   --device             cuda:0 \
-#   --min_subjects_per_batch 8 \
-#   --ontology_path      /user/zj2398/cache/mtpp_8k/ontology.pkl \
-#   --main_split_path    /user/zj2398/cache/mtpp_8k/main_split.csv \
-#   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h/ \
-#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
-#   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
-#   --use_ntp no \
-#   --tasks "pao2,platelets" \
-#   --regression 
 
 
 ##kuvira

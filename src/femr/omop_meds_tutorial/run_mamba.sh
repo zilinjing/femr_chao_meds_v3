@@ -30,7 +30,7 @@ python prepare.py \
 
 # ---- job 2: training (background) ----
 # multi-gpu pretraining
-# export CUDA_VISIBLE_DEVICES=0,1,2,3,4,6,7
+# export CUDA_VISIBLE_DEVICES=0,1,3,5
 
 # accelerate launch \
 #   --num_processes 4 \
@@ -95,6 +95,7 @@ python prepare.py \
     pretrain.py \
     --pretraining_data /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume \
     --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+    --gradient_accumulation_steps 2 \
     --learning_rate 2e-4 \
     --max_grad_norm 5.0 \
     --per_device_train_batch_size 1 \
@@ -105,20 +106,20 @@ python prepare.py \
     --n_layers 28 \
     --hf_run_name mimic_mtpp_all_nonnumerical_mamba_2e-4_5.0 
 
-accelerate launch \
-    --num_processes 2 \
-    pretrain.py \
-    --pretraining_data /user/zj2398/cache/survivehr \
-    --meds_reader /shared/share_mala/zj2398/mimic/meds_v0.6_reader \
+# accelerate launch \
+#     --num_processes 3 \
+    python pretrain.py \
+    --pretraining_data /user/zj2398/cache/icarefm \
+    --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
     --learning_rate 2e-4 \
     --max_grad_norm 5.0 \
     --per_device_train_batch_size 1 \
-    --output_dir /user/zj2398/cache/survivehr/mamba \
+    --output_dir /user/zj2398/cache/icarefm/mamba \
     --model mamba \
-    --loss_type survivehr \
+    --loss_type icarefm \
     --n_epochs 20 \
     --n_layers 28 \
-    --hf_run_name mimic_survivehr_mamba_2e-4_5.0_value_1000
+    --hf_run_name mimic_icarefm_mamba_2e-4_5.0_value_1000
 
   # python pretrain.py  \
   # --pretraining_data /user/zj2398/cache/mtpp_all_shared_6100_bin_5   \
