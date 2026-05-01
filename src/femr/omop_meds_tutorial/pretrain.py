@@ -459,8 +459,15 @@ accelerate launch \
 
 
 
-
-
+python pretrain.py \
+    --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/icarefm \
+    --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader  \
+    --output_dir /data2/processed_datasets/zj2398/femr/cumc/icarefm/transformer \
+    --model transformer \
+    --loss_type icarefm \
+    --learning_rate 1e-5 \
+    --n_epochs 20 \
+    --hf_run_name cumc_icarefm_transformer_value_1000
 
 
 

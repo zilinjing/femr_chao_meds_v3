@@ -464,15 +464,17 @@ python prepare.py \
 kuvira cumc
 
 python prepare.py \
-  --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/survivehr \
-  --ontology_path /data2/processed_datasets/zj2398/femr/cumc/survivehr/ontology.pkl \
+  --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/icarefm \
+  --ontology_path /data2/processed_datasets/zj2398/femr/cumc/icarefm/ontology.pkl \
   --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
-  --num_threads 32 \
+  --num_threads 24 \
   --tokens_per_batch 16384 \
   --value_count_threshold 1000 \
   --model transformer \
-  --loss_type survivehr \
+  --loss_type icarefm \
   --hf_cache_path /data2/huggingface/zj2398/
+
+
 
     
 '''
