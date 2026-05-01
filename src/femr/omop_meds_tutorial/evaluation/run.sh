@@ -40,7 +40,6 @@ show_help() {
 }
 
 # Parse command line options
-# PRETRAINING_DATA_ARG=""
 OMOP_MEDS_READER_ARG=""
 CLASS_COHORT=""
 TTE_COHORT=""
@@ -53,10 +52,6 @@ while [ $# -gt 0 ]; do
             show_help
             exit 0
             ;;
-        # --pretraining_data)
-        #     PRETRAINING_DATA_ARG="$2"
-        #     shift 2
-        #     ;;
         --meds_reader)
             OMOP_MEDS_READER_ARG="$2"
             shift 2
@@ -403,23 +398,6 @@ echo "All tasks processed."
 #   --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
 #   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ 
 
-
-# outcome
-# bash run.sh \
-#   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
-#   --num_proc           32 \
-#   --model_path         /user/zj2398/cache/survivehr/transformer/best_64953 \
-#   --model_name         transformer_survivehr \
-#   --tokens_per_batch   65536 \
-#   --device             cuda:0 \
-#   --use_ntp            yes \
-#   --cohort_type        outcome \
-#   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
-#   --min_subjects_per_batch 8 \
-#   --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
-#   --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
-#   --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
-#   --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ \
 #   readmission
 
 # in_hospital_mortality  long_los  readmission
@@ -431,16 +409,16 @@ echo "All tasks processed."
 # bash run.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader  \
 #   --num_proc           32 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer/best_100570 \
-#   --model_name         transformer_numerical_only \
+#   --model_path         /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer/best_256914 \
+#   --model_name         transformer_survivehr \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
-#   --use_ntp            no \
+#   --use_ntp            yes \
 #   --cohort_type        outcome \
 #   --cache_path         /data2/huggingface/zj2398 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl \
-#   --main_split_path     /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/main_split.csv \
+#   --ontology_path       /data2/processed_datasets/zj2398/femr/cumc/survivehr/ontology.pkl \
+#   --main_split_path     /data2/processed_datasets/zj2398/femr/cumc/survivehr/main_split.csv \
 #   --output_dir   /data/results/zj2398/femr/mimic/classification  \
 #   --classification_cohort /data2/processed_datasets/mimic/patient_outcome_tasks/
 
@@ -448,15 +426,15 @@ echo "All tasks processed."
 # bash run.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
 #   --num_proc           12 \
-#   --model_path          /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer/best_100570 \
-#   --model_name         transformer_numerical_only \
+#   --model_path         /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer/best_256914 \
+#   --model_name         transformer_survivehr \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
-#   --use_ntp            no \
+#   --use_ntp            yes \
 #   --cohort_type        phenotype \
 #   --cache_path        /data2/huggingface/zj2398/ \
 #   --min_subjects_per_batch 8 \
-#   --truncation  330 \
+#   --truncation  300 \
 #   --observation_window 730 \
 #   --ontology_path       /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl \
 #   --main_split_path     /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/main_split.csv \
@@ -465,21 +443,48 @@ echo "All tasks processed."
 #   --tte_cohort /data2/processed_datasets/mimic/phenotype_task/tte/ \
 #   ami
 
+# export CUDA_VISIBLE_DEVICES=2
+
+# kuvira cumc
 
 # bash run.sh \
-#   --pretraining_data   /data/models/zj2398/femr/cumc_0.1/mtpp_5_bin \
 #   --meds_reader        /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
-#   --num_proc           20 \
-#   --model_path         /data/models/zj2398/femr/cumc_0.1/mtpp_5_bin/transformer/best_21522 \
-#   --model_name         mtpp_5_bin \
+#   --num_proc           24 \
+#   --model_path         /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer/best_256914 \
+#   --model_name         transformer_survivehr \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
+#   --use_ntp            yes \
+#   --cohort_type        outcome \
+#   --cache_path         /data2/huggingface/zj2398 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /data2/processed_datasets/zj2398/femr/ontology.pkl \
-#   --main_split_path     /data2/processed_datasets/zj2398/femr/cumc/cumc_split.csv \
-#   --loss_type  labeled_subjects \
-#   --output_dir   /data/results/zj2398/femr/cumc_0.1/phenotype \
-#   /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/
+#   --ontology_path       /data2/processed_datasets/zj2398/femr/cumc/survivehr/ontology.pkl \
+#   --main_split_path     /data2/processed_datasets/zj2398/femr/cumc/survivehr/main_split.csv \
+#   --output_dir   /data/results/zj2398/femr/cumc/outcome/  \
+#   --classification_cohort /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/patient_outcomes_clean
+
+
+# bash run.sh \
+#   --meds_reader        /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
+#   --num_proc           24 \
+#   --model_path         /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer/best_256914 \
+#   --model_name         transformer_survivehr \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --use_ntp            yes \
+#   --cohort_type        phenotype \
+#   --cache_path        /data2/huggingface/zj2398/ \
+#   --min_subjects_per_batch 8 \
+#   --truncation  1825 \
+#   --observation_window 730 \
+#   --ontology_path       /data2/processed_datasets/zj2398/femr/cumc/survivehr/ontology.pkl \
+#   --main_split_path     /data2/processed_datasets/zj2398/femr/cumc/survivehr/main_split.csv \
+#   --output_dir   /data/results/zj2398/femr/cumc/phenotype  \
+#   --classification_cohort  /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/binary/ \
+#   --tte_cohort  /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/tte/ 
+
+#   ami
+
 
 
 
