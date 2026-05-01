@@ -325,9 +325,17 @@ def main():
 
     # print(f"Model param count: {count_parameters(model)}")
     param_count = count_parameters(model)
-    logger.info("Model param count: %s", param_count)
+    backbone_count = count_parameters(model.backbone)
+    head_count = count_parameters(model.task_model)
+    other_count = param_count - backbone_count - head_count
+    logger.info(
+        "Model param count: total=%s backbone=%s head=%s other=%s",
+        param_count, backbone_count, head_count, other_count,
+    )
     if wandb.run is not None:
         wandb.run.summary["model/param_count"] = param_count
+        wandb.run.summary["model/backbone_param_count"] = backbone_count
+        wandb.run.summary["model/head_param_count"] = head_count
 
     learning_rate = args.learning_rate
     # output_dir = 'tmp_trainer_' + sys.argv[1]
