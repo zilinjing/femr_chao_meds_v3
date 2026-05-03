@@ -445,6 +445,7 @@ accelerate launch \
     --loss_type mtpp_shared \
     --hf_run_name mimic_mtpp_all_nonnumerical_test
 
+
 accelerate launch \
   --num_processes 2 \
   pretrain.py \
@@ -458,6 +459,15 @@ accelerate launch \
 
 
 
+python pretrain.py \
+    --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/mtpp_T_10_V_5  \
+    --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
+    --per_device_train_batch_size 1 \
+    --output_dir /data2/processed_datasets/zj2398/femr/cumc/mtpp_T_10_V_5/transformer \
+    --model transformer \
+    --checkpoint_dir /data2/processed_datasets/zj2398/femr/cumc/mtpp_T_10_V_5/transformer/checkpoint-144177 \
+    --loss_type mtpp_shared \
+    --hf_run_name cumc_mtpp_T_10_V_5_transformer
 
 python pretrain.py \
     --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/icarefm \

@@ -46,6 +46,8 @@ accelerate launch  \
   --loss_type mtpp_shared
 
 
+
+
   # python pretrain.py  \
   # --pretraining_data /user/zj2398/cache/mtpp_all_shared_6100_bin_5   \
   # --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \

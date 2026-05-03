@@ -13,31 +13,43 @@ import os
 import argparse
 from sksurv.metrics import concordance_index_ipcw, integrated_brier_score
 from femr.omop_meds_tutorial.evaluation.eval_utils import _metric_mean_std, _update_metric_table
+from femr.omop_meds_tutorial.evaluation.p_test.tte.utils import (
+    bootstrap_cindex_parallel,
+    generate_bootstrap_indices,
+    make_structured_array,
+    save_survival_results,
+)
 
 np.random.seed(42)
 torch.manual_seed(42)
 
 
-def tte_evaluation(train_set, test_set,task,truncation=365,tte_cohort_path=None):
+def tte_evaluation(train_set, test_set,task,model_name,save_path,truncation=365,tte_cohort_path=None):
     # Extract validation set to stop loss
-    if tte_cohort_path is not None:
-        tte_cohort_path = Path(tte_cohort_path)/task/f"{task}.parquet"
-        print(f"reading cohort from {tte_cohort_path}")
-        if tte_cohort_path.exists():
-            tte_cohort = pd.read_parquet(tte_cohort_path)
-        else:
-            task_dir = tte_cohort_path.parent
-            parquet_files = list(task_dir.glob("*.parquet"))
-            tte_cohort = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
-        tte_cohort =  tte_cohort.rename(columns={"time_to_event_days": "time_to_event"}, errors="ignore")
-        keys = tte_cohort[["subject_id", "prediction_time",'time_to_event',"tte_label"]].drop_duplicates()
-        train_set = train_set.merge(
-            keys, on=["subject_id", "prediction_time"], how="inner"
-        )
+    # if tte_cohort_path is not None:
 
-        test_set = test_set.merge(
-            keys, on=["subject_id", "prediction_time"], how="inner"
-        )
+    tte_cohort_path = Path(tte_cohort_path)/task/f"{task}.parquet"
+    print(f"reading cohort from {tte_cohort_path}")
+    if tte_cohort_path.exists():
+        tte_cohort = pd.read_parquet(tte_cohort_path)
+    else:
+        task_dir = tte_cohort_path.parent
+        parquet_files = list(task_dir.glob("*.parquet"))
+        tte_cohort = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
+    tte_cohort =  tte_cohort.rename(columns={"time_to_event_days": "time_to_event"}, errors="ignore")
+    keys = tte_cohort[["subject_id", "prediction_time",'time_to_event',"tte_label"]].drop_duplicates()
+    train_set = train_set.merge(
+        keys, on=["subject_id", "prediction_time"], how="inner"
+    ).sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
+
+    test_set = test_set.merge(
+        keys, on=["subject_id", "prediction_time"], how="inner"
+    ).sort_values(["subject_id", "prediction_time"]).reset_index(drop=True)
+
+    test_order = list(zip(
+        test_set["subject_id"].values.tolist(),
+        test_set["prediction_time"].astype(str).values.tolist(),
+    ))
     print(f"truncation is {truncation}")
     val = train_set.sample(frac=0.2, replace=False, random_state=42)
     train_set = train_set.drop(val.index)
@@ -76,34 +88,43 @@ def tte_evaluation(train_set, test_set,task,truncation=365,tte_cohort_path=None)
     in_features = x_train.shape[1]
     out_features = labtrans.out_features
 
-    grid = ParameterGrid({
-        'dropout': [0, 0.1],
-        'lr': [0.001, 0.0001],
-        'batch': [1024, 2048]
-    })
+    # Create structured arrays with filtered data
+    # Create format for sksurv
+    et_train = make_structured_array(durations_train, events_train)
+    et_test = make_structured_array(durations_test, events_test)
+
+    if
+        dir / f"tte_model_{truncation}.pt"
+
+    else:
+        grid = ParameterGrid({
+            'dropout': [0, 0.1],
+            'lr': [0.001, 0.0001],
+            'batch': [1024, 2048]
+        })
 
 
-    # Hyperparameter selection
-    best_nll = np.inf
-    best_model = None
-    best_params = None
-    for param in grid:
-        net = tt.practical.MLPVanilla(in_features, [], out_features, True, param['dropout'])
+        # Hyperparameter selection
+        best_nll = np.inf
+        best_model = None
+        best_params = None
+        for param in grid:
+            net = tt.practical.MLPVanilla(in_features, [], out_features, True, param['dropout'])
 
-        # Train Deephit
-        model = DeepHitSingle(net, tt.optim.Adam, duration_index=labtrans.cuts)
-        model.optimizer.set_lr(param['lr'])
-        epochs = 1000
-        _ = model.fit(x_train, y_train, param['batch'], epochs, [tt.callbacks.EarlyStopping()],
-                    val_data=val)
-        
-        nll = model.score_in_batches(x_hyper, y_hyper)['loss']
-        if nll < best_nll:
-            best_model = model
-            best_nll = nll
-            best_params = param
+            # Train Deephit
+            model = DeepHitSingle(net, tt.optim.Adam, duration_index=labtrans.cuts)
+            model.optimizer.set_lr(param['lr'])
+            epochs = 1000
+            _ = model.fit(x_train, y_train, param['batch'], epochs, [tt.callbacks.EarlyStopping()],
+                        val_data=val)
+            
+            nll = model.score_in_batches(x_hyper, y_hyper)['loss']
+            if nll < best_nll:
+                best_model = model
+                best_nll = nll
+                best_params = param
 
-    print(f"Best params: {best_params}, NLL: {best_nll:.4f}")
+        print(f"Best params: {best_params}, NLL: {best_nll:.4f}")
     
 
     # Evaluation best model
@@ -121,19 +142,16 @@ def tte_evaluation(train_set, test_set,task,truncation=365,tte_cohort_path=None)
     # print(f"times_5yr is {times_5yr}")
     results = {'C-Index': [], 'Int-Brier': []}
 
-    # Create structured arrays with filtered data
-    # Create format for sksurv
-    et_train = make_structured_array(durations_train, events_train)
-    et_test = make_structured_array(durations_test, events_test)
 
-    bootstrap_indices = generate_bootstrap_indices(len(et_test), n_bootstrap, seed)
+    bootstrap_indices = generate_bootstrap_indices(len(et_test), 10000, 42)
     c_indices = bootstrap_cindex_parallel(
         surv,
+        et_train,
         et_train,
         et_test,
         truncation,
         bootstrap_indices,
-        n_jobs,
+        16,
     )
 
     saved_results = {
@@ -216,13 +234,12 @@ def tte_evaluation(train_set, test_set,task,truncation=365,tte_cohort_path=None)
     
     return results
 
-def run(tasks, old_phenotype_path_str,truncation,tte_cohort,model_name):
+def run(tasks, old_phenotype_path_str,truncation,tte_cohort,model_list):
     old_phenotype_dir = Path(old_phenotype_path_str)
     # phenotype_label_dir = Path("/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte")
     # key_cols = ["subject_id", "prediction_time", "tte_label", "time_to_event"]
-    model_list = None
-    if args.model_name is not None:
-        model_list = args.model_name.split(",")
+    if model_list is not None:
+        model_list = model_list.split(",")
         print(f"model list is {model_list}")
     for task in tasks:
         old_phenotype_path = old_phenotype_dir / task
@@ -246,21 +263,22 @@ def run(tasks, old_phenotype_path_str,truncation,tte_cohort,model_name):
                 continue
             train_parquet = pd.read_parquet(train_path)
             test_parquet  = pd.read_parquet(test_path)
+            model_name = subdir.name
+            save_dir = old_phenotype_dir / task / model_name
 
-            tte_results = tte_evaluation(train_parquet, test_parquet,task,truncation,tte_cohort)
+            tte_results = tte_evaluation(train_parquet, test_parquet,task,model_name, save_dir, truncation,tte_cohort)
 
             metrics = {}
             metrics['C-Index']  = (float(np.mean(tte_results['C-Index'])),  float(np.std(tte_results['C-Index'])))
             metrics['Int-Brier'] = (float(np.mean(tte_results['Int-Brier'])), float(np.std(tte_results['Int-Brier'])))
 
-            save_dir = old_phenotype_dir / "results" / task / subdir.name
-            os.makedirs(save_dir, exist_ok=True)
+            # os.makedirs(save_dir, exist_ok=True)
             save_file = save_dir / f"tte_{truncation}_days.json"
             with open(save_file, "w") as f:
                 json.dump(metrics, f)
             print(f"Saved metrics to {save_file}")
 
-            summary_dir = old_phenotype_dir / "results" / f"summary_table_{truncation}"
+            summary_dir = old_phenotype_dir / f"summary_table_{truncation}"
             os.makedirs(summary_dir,exist_ok=True)
 
             cidx_mean, cidx_std   = _metric_mean_std(metrics, "C-Index")
@@ -301,29 +319,10 @@ python tte_grid_search_new_time_motor.py \
     --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte \
     --model_name mamba_mtpp_2e-4_730,mamba_tpp_2e-4_730,transformer_ntp_730,transformer_tpp_730
 
-
-    
-python tte_grid_search_filter_motor.py \
-    --tasks AMI,Celiac \
+python tte_grid_search_new_time_motor.py \
+    --tasks AMI,Celiac,Ischemic_Stroke,MASLD \
     --truncation 365 \
-    --output_name "" \
-    --old_phenotype_path /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/models/femr/motor_large_no_visit_id \
-    --tte_cohort /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/tte/
-
-python tte_grid_search_filter_motor.py \
-    --tasks Ischemic_Stroke,MASLD \
-    --truncation 1825 \
-    --output_name "" \
-    --old_phenotype_path /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/models/femr/motor_large_no_visit_id \
-    --tte_cohort /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/tte/
-
-
-
-python tte_grid_search_filter_motor.py \
-    --tasks Ischemic_Stroke \
-    --truncation 1825 \
-    --output_name "" \
-    --old_phenotype_path /data/results/zj2398/femr/cumc/phenotype \
+    --old_phenotype_path /data/results/zj2398/femr/cumc/phenotype/results \
     --tte_cohort /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/tte/
 
 python tte_grid_search_filter_motor.py \
