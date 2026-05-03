@@ -356,7 +356,7 @@ echo "All tasks processed."
 
 
 # phenotype
-# export CUDA_VISIBLE_DEVICES=2
+# export CUDA_VISIBLE_DEVICES=1
 
 # /shared/share_mala/zj2398/models/mtpp_8k/mtpp_8k_T_8_V_10/transformer/best-100620
 
@@ -364,11 +364,11 @@ echo "All tasks processed."
 # bash run.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
 #   --num_proc           24 \
-#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer/best_106635 \
-#   --model_name         transformer_mtpp_all_6k_nonmuerical \
+#   --model_path         /user/zj2398/cache/survivehr/mamba_2e-4/checkpoint-29220 \
+#   --model_name         survivehr_mamba \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
-#   --use_ntp            no \
+#   --use_ntp            yes \
 #   --cohort_type        phenotype \
 #   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
 #   --min_subjects_per_batch 8 \
@@ -380,16 +380,17 @@ echo "All tasks processed."
 #   --classification_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/binary/ \
 #   --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte/ 
 
+
 #   --ami,masld,stroke
 
 # bash run.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
 #   --num_proc           24 \
-#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer/best_106635 \
-#   --model_name         transformer_mtpp_all_6k_nonmuerical \
+#   --model_path         /user/zj2398/cache/survivehr/mamba_2e-4/checkpoint-29220 \
+#   --model_name         survivehr_mamba \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
-#   --use_ntp            no \
+#   --use_ntp            yes \
 #   --cohort_type        outcome \
 #   --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
 #   --min_subjects_per_batch 8 \
@@ -408,7 +409,7 @@ echo "All tasks processed."
 # kuvira - mimic
 # bash run.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader  \
-#   --num_proc           32 \
+#   --num_proc           24 \
 #   --model_path         /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer/best_256914 \
 #   --model_name         transformer_survivehr \
 #   --tokens_per_batch   65536 \
@@ -484,6 +485,8 @@ echo "All tasks processed."
 #   --tte_cohort  /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/tte/ 
 
 #   ami
+
+# /user/zj2398/cache/icarefm/transformer/best_314895
 
 
 

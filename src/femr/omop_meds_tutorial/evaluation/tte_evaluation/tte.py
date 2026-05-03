@@ -55,14 +55,14 @@ def tte_evaluation(train_set, test_set):
 
     durations_train, events_train = get_target(train_set)
 
-    x_val = np.stack(val.features.values)
+    x_val = np.stack(val.features.values).astype(np.float32)
     y_val = labtrans.transform(*get_target(val))
     val = (x_val, y_val)
 
-    x_hyper = np.stack(hyper.features.values)
+    x_hyper = np.stack(hyper.features.values).astype(np.float32)
     y_hyper = labtrans.transform(*get_target(hyper))
 
-    x_test = np.stack(test_set.features.values)
+    x_test = np.stack(test_set.features.values).astype(np.float32)
     durations_test, events_test = get_target(test_set)
 
     # Define one layer NN for Deephit
@@ -77,6 +77,8 @@ def tte_evaluation(train_set, test_set):
 
     # Hyperparameter selection
     best_nll = np.inf
+    best_model = None
+    best_params = None
     for param in grid:
         net = tt.practical.MLPVanilla(in_features, [], out_features, True, param['dropout'])
 
@@ -91,12 +93,15 @@ def tte_evaluation(train_set, test_set):
         if nll < best_nll:
             best_model = model
             best_nll = nll
+            best_params = param
+
+    print(f"Best params: {best_params}, NLL: {best_nll:.4f}")
     
 
     # Evaluation best model
     surv = best_model.predict_surv_df(x_test)
     # print(f"surv is {surv}")
-    truncation = 5 * 365
+    truncation = 365
 
     # times represent all discretized intervals
     times = surv.index.to_numpy()

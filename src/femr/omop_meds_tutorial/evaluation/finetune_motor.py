@@ -222,7 +222,7 @@ def tte_evaluation(
     y_val = labtrans.transform(*get_target(val))
     val = (x_val, y_val)
 
-    x_hyper = np.stack(hyper.features.values).astype(np.float32)
+    x_hyper = np.stack(hyper.features.values) v
     y_hyper = labtrans.transform(*get_target(hyper))
 
     x_test = np.stack(test_set.features.values).astype(np.float32)

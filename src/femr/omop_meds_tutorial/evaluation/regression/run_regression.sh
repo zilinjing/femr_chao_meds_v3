@@ -217,11 +217,11 @@ echo "All selected tasks processed."
 # bash run_regression.sh \
 #   --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
 #   --num_proc           24 \
-#   --model_path         /user/zj2398/cache/mtpp_8k_T_8_V_5_all_nonnume/transformer/best_106635 \
-#   --model_name         transformer_mtpp_all_6k_nonmuerical \
+#   --model_path         /user/zj2398/cache/survivehr/mamba_2e-4/checkpoint-29220 \
+#   --model_name         survivehr_mamba \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
-#   --use_ntp no \
+#   --use_ntp yes \
 #   --min_subjects_per_batch 8 \
 #   --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
 #   --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
@@ -246,7 +246,7 @@ echo "All selected tasks processed."
 #   --ontology_path       /user/zj2398/cache/mtpp_8k_T_8_V_10/ontology.pkl \
 #   --main_split_path     /user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv \
 #   --cohort_dir   /shared/share_mala/zj2398/mimic/task/regression/cohort/icu_stay_4h_100k/ \
-#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression/ \
+#   --output_dir   /shared/share_mala/zj2398/mimic/task/regression \
 #   --use_ntp no \
 #   --cache_path /shared/share_mala/zj2398/huggingface/datasets \
 #   --tasks "pao2,platelets,creatinine" \
