@@ -14,12 +14,27 @@ python prepare.py \
 
 accelerate launch \
     --num_processes 3 \
-    python pretrain.py \
+    pretrain.py \
     --pretraining_data /user/zj2398/cache/icarefm \
     --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
     --output_dir /user/zj2398/cache/icarefm/mamba \
     --model mamba \
     --loss_type icarefm \
-    --learning_rate 2e-5 \
+    --learning_rate 2e-4 \
+    --max_grad_norm 5.0 \
     --n_epochs 20 \
-    --hf_run_name mimic_icarefm_mamba_value_1000
+    --n_layers 28 \
+    --hf_run_name mimic_icarefm_mamba_2e-4_5.0_value_1000
+
+    # python pretrain.py \
+    # --pretraining_data /user/zj2398/cache/icarefm \
+    # --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+    # --learning_rate 2e-4 \
+    # --max_grad_norm 5.0 \
+    # --per_device_train_batch_size 1 \
+    # --output_dir /user/zj2398/cache/icarefm/mamba \
+    # --model mamba \
+    # --loss_type icarefm \
+    # --n_epochs 20 \
+    # --n_layers 28 \
+    # --hf_run_name mimic_icarefm_mamba_2e-4_5.0_value_1000

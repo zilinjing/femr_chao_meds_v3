@@ -95,7 +95,9 @@ def tte_evaluation(train_set, test_set, task, model_name, save_path, truncation=
         # Reconstruct network with cached best_params and load weights
         net = tt.practical.MLPVanilla(in_features, [], out_features, True, best_params['dropout'])
         best_model = DeepHitSingle(net, tt.optim.Adam, duration_index=labtrans.cuts)
-        best_model.load_net(str(model_path))
+        # PyTorch >=2.6 defaults torch.load to weights_only=True, which rejects
+        # the pickled MLPVanilla object that torchtuples saves via load_net.
+        best_model.net = torch.load(str(model_path), weights_only=False)
     else:
         # === [unchanged] grid search ===
         grid = ParameterGrid({
@@ -267,11 +269,13 @@ if __name__ == "__main__":
 
 '''
 python tte_grid_search_new_time_motor_new.py \
-    --tasks ami,masld,stroke \
+    --tasks ami \
     --truncation 300 \
     --old_phenotype_path /shared/share_mala/zj2398/mimic/task/phenotype_task/results \
     --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte \
-    --model_name mamba_mtpp_2e-4_730,mamba_tpp_2e-4_730,transformer_ntp_730,transformer_tpp_730
+    --model_name transformer_mtpp_T_8_V_10_730,transformer_mtpp_T_16_V_5_730,xgboost,transformer_numerical_only
+
+ami,masld,stroke 
 
 python tte_grid_search_new_time_motor_new.py \
     --tasks AMI \
