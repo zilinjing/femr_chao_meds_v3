@@ -464,6 +464,19 @@ python prepare.py \
 kuvira cumc
 
 python prepare.py \
+  --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/mtpp \
+  --ontology_path /data2/processed_datasets/zj2398/femr/ontology.pkl \
+  --time_bins 8 \
+  --num_threads 80 \
+  --value_bins 5 \
+  --num_final_tasks 6100 \
+  --tokens_per_batch 16384 \
+  --model mamba \
+  --loss_type mtpp \
+  --hf_cache_path /data2/huggingface/zj2398/ \
+  --meds_reader  /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader
+
+python prepare.py \
   --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/icarefm \
   --ontology_path /data2/processed_datasets/zj2398/femr/cumc/icarefm/ontology.pkl \
   --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \

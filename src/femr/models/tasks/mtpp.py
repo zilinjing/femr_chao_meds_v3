@@ -273,20 +273,20 @@ class MTPP_Task(Task):
         print(f"After filtering: {len(numerical_tasks_info)} numerical + "
             f"{len(non_numerical_tasks_info)} non-numerical = {total_filtered} tasks")
         
-        # if total_filtered > num_final_tasks:
-        #     max_non_numerical = num_final_tasks - len(numerical_tasks_info)
-        #     if max_non_numerical < 0:
-        #         warnings.warn(f"Number of numerical tasks ({len(numerical_tasks_info)}) exceeds "
-        #                     f"num_final_tasks ({num_final_tasks}). Keeping all numerical tasks anyway.")
-        #         max_non_numerical = 0
+        if total_filtered > num_final_tasks:
+            max_non_numerical = num_final_tasks - len(numerical_tasks_info)
+            if max_non_numerical < 0:
+                warnings.warn(f"Number of numerical tasks ({len(numerical_tasks_info)}) exceeds "
+                            f"num_final_tasks ({num_final_tasks}). Keeping all numerical tasks anyway.")
+                max_non_numerical = 0
             
-        #     original_non_num_count = len(non_numerical_tasks_info)
-        #     non_numerical_tasks_info = non_numerical_tasks_info[:max_non_numerical]
+            original_non_num_count = len(non_numerical_tasks_info)
+            non_numerical_tasks_info = non_numerical_tasks_info[:max_non_numerical]
             
-        #     print(f"Limited non-numerical tasks from {original_non_num_count} to {len(non_numerical_tasks_info)} "
-        #         f"to stay within num_final_tasks={num_final_tasks}")
-        #     print(f"Final: {len(numerical_tasks_info)} numerical + {len(non_numerical_tasks_info)} "
-        #         f"non-numerical = {len(numerical_tasks_info) + len(non_numerical_tasks_info)} tasks")
+            print(f"Limited non-numerical tasks from {original_non_num_count} to {len(non_numerical_tasks_info)} "
+                f"to stay within num_final_tasks={num_final_tasks}")
+            print(f"Final: {len(numerical_tasks_info)} numerical + {len(non_numerical_tasks_info)} "
+                f"non-numerical = {len(numerical_tasks_info) + len(non_numerical_tasks_info)} tasks")
 
         # Second pass: create bins for selected tasks in the correct order
         numerical_time_bins = []

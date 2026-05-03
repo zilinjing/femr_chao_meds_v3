@@ -15,13 +15,13 @@ set -euo pipefail
 
 
 python prepare.py \
-  --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/mtpp \
-  --ontology_path  /data2/processed_datasets/zj2398/femr/cumc/mtpp/ontology.pkl \
-  --time_bins 6 \
-  --value_bins 8 \
-  --model mamba \
+  --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/mtpp_T_10_V_5 \
+  --ontology_path  /data2/processed_datasets/zj2398/femr/cumc/mtpp_T_10_V_5/ontology.pkl \
+  --time_bins 10 \
+  --value_bins 5 \
+  --model transformer \
   --loss_type mtpp \
-  --num_threads 32 \
+  --num_threads 24 \
   --num_final_tasks 6972 \
   --hf_cache_path /data2/huggingface/zj2398 \
   --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader

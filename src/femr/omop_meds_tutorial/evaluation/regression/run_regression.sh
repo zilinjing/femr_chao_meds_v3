@@ -211,7 +211,7 @@ done
 
 echo "All selected tasks processed."
 
-#export CUDA_VISIBLE_DEVICES=2
+#export CUDA_VISIBLE_DEVICES=1
 # glucose,creatinine,pao2,platelets
 
 # bash run_regression.sh \
