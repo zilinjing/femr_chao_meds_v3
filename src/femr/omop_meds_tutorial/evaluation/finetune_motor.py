@@ -311,9 +311,10 @@ def tte_evaluation(
                 (times <= max_time_sample) & \
                 (times <= truncation)
     times_eval = times[eval_mask]
+    ibs_rng = np.random.default_rng(42)
     
     for i in tqdm(range(100)):
-        sample = np.random.choice(len(et_test), len(et_test))
+        sample = ibs_rng.choice(len(et_test), len(et_test))
         surv_at_5yr = surv.iloc[index_truncation, sample]
         risk_at_5yr = 1 - surv_at_5yr
         
@@ -372,7 +373,7 @@ def main():
 
     # labels = ["in_hospital_mortality","readmission","long_los"]
     output_dir = Path(output_root) / "results"
-    summary_dir = output_dir / "summary_tables"
+    summary_dir = output_dir / f"summary_table_{args.truncation}"
     model_col = f"{args.model_name}"
     with meds_reader.SubjectDatabase(args.meds_reader, num_threads=32) as database:
         if args.observation_window:

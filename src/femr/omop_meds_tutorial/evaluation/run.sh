@@ -356,7 +356,7 @@ echo "All tasks processed."
 
 
 # phenotype
-# export CUDA_VISIBLE_DEVICES=1
+# export CUDA_VISIBLE_DEVICES=0
 
 # /shared/share_mala/zj2398/models/mtpp_8k/mtpp_8k_T_8_V_10/transformer/best-100620
 
@@ -468,15 +468,15 @@ echo "All tasks processed."
 # bash run.sh \
 #   --meds_reader        /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
 #   --num_proc           24 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer/best_256914 \
-#   --model_name         transformer_survivehr \
+#   --model_path         /data2/processed_datasets/zj2398/femr/cumc/icarefm/transformer/best_922142 \
+#   --model_name         transformer_icarefm \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
 #   --use_ntp            yes \
 #   --cohort_type        phenotype \
 #   --cache_path        /data2/huggingface/zj2398/ \
 #   --min_subjects_per_batch 8 \
-#   --truncation  1825 \
+#   --truncation  365 \
 #   --observation_window 730 \
 #   --ontology_path       /data2/processed_datasets/zj2398/femr/cumc/survivehr/ontology.pkl \
 #   --main_split_path     /data2/processed_datasets/zj2398/femr/cumc/survivehr/main_split.csv \
