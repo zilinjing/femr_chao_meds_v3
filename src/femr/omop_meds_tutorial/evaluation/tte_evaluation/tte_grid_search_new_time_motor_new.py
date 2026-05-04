@@ -269,7 +269,7 @@ if __name__ == "__main__":
 
 '''
 python tte_grid_search_new_time_motor_new.py \
-    --tasks ami \
+    --tasks stroke \
     --truncation 300 \
     --old_phenotype_path /shared/share_mala/zj2398/mimic/task/phenotype_task/results \
     --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte \
