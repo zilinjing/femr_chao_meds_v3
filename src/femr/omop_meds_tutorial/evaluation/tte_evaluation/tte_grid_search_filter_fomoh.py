@@ -295,7 +295,7 @@ fomoh
 
 python tte_grid_search_filter_fomoh.py \
     --tasks AMI,Celiac,Ischemic_Stroke,MASLD \
-    --truncation 1825 \
+    --truncation 365 \
     --output_name "" \
     --old_phenotype_path /data/results/zj2398/fomoh/cumc/linear_probing/ \
     --tte_cohort /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/tte/

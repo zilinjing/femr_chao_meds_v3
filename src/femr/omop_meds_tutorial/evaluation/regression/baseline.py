@@ -85,16 +85,17 @@ MIMIC_CODE_DICT = {
 
 
 CUMC_CODE_DICT = {
-    "platelets": "LOINC/26515-7//UCUM/10*9/L",
-    "creatinine": "LOINC/2160-0//UCUM/mg/dL",
-    "bilirubin": "LOINC/1968-7//UCUM/mg/dL",
-    "spo2":"LOINC/2708-6//UCUM/%",
+    # "platelets": "LOINC/26515-7//UCUM/10*9/L",
+    # "creatinine": "LOINC/2160-0//UCUM/mg/dL",
+    # "bilirubin": "LOINC/1968-7//UCUM/mg/dL",
+    # "spo2":"LOINC/2708-6//UCUM/%",
+    "glucose":"LOINC/2339-0//UCUM/mg/dL"
 }
 
 # ============================================================================
 # Data Loading
 # ============================================================================
-def load_data(cohort_dir: Path, split_path: Path, task: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def load_data(cohort_dir: Path, split_path: Path, task: str,CODE_DICT: Dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Load a single task cohort and split it into train/test rows.
 
@@ -108,6 +109,7 @@ def load_data(cohort_dir: Path, split_path: Path, task: str) -> Tuple[pd.DataFra
     
     test_df = merged[merged["split"] == "test"].reset_index(drop=True)
     train_df = merged[merged["split"] != "test"]
+    train_df["code"] = CODE_DICT[task]
     return train_df, test_df
 
 
@@ -320,7 +322,7 @@ def run_baseline(
             print(f"\n{'='*60}\nTask: {task} | Code: {target_code}\n{'='*60}")
             
             # Load data
-            train_df, test_df = load_data(cohort_dir, split_path, task)
+            train_df, test_df = load_data(cohort_dir, split_path, task,CODE_DICT)
             print(f"Train: {len(train_df):,} | Test: {len(test_df):,}")
             
             # Compute fallback mean

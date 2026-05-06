@@ -45,41 +45,57 @@ def load_features_labels(feature_path, label_path, split_path):
     return X, labels
 
 
+# EXPERIMENTS = {
+#     "mimic": {
+#         "data_path": "/data2/processed_datasets/mimic/baseline_features_22_12_vj2292/",
+#         "tte_col": "time_to_event_days",
+
+#         "phenotypes": [
+#             "ami",
+#             "stroke",
+#             "masld",
+#         ],
+
+#         "binary_only": [
+#             "in_hospital_mortality",
+#             "readmission",
+#             "long_los",
+#         ],
+#     },
+# }
+
 EXPERIMENTS = {
-    "mimic": {
-        "data_path": "/data2/processed_datasets/mimic/baseline_features_22_12_vj2292/",
-        "tte_col": "time_to_event_days",
+    "cumc": {
+        "data_path": "/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/baseline_features_22_12_vj2292/",
+        "tte_col": "time_to_event",
 
         "phenotypes": [
-            "ami",
-            "stroke",
-            "masld",
-        ],
-
-        "binary_only": [
-            "in_hospital_mortality",
-            "readmission",
-            "long_los",
+            "AMI",
+            "Ischemic_Stroke",
+            "MASLD",
+            "Celiac"
         ],
     },
 }
 
 for dataset, cfg in EXPERIMENTS.items():
-    split_path = "/data2/processed_datasets/zj2398/femr/{}/main_split.csv".format(
-        "cumc" if dataset == "cuimc" else dataset
-    )
+    split_path = "/data2/processed_datasets/zj2398/femr/{}/main_split.csv".format(dataset)
 
     # Use CLI filter if provided, otherwise use config defaults
-    # phenotypes = args.phenotypes if args.phenotypes is not None else cfg["phenotypes"]
+    phenotypes = args.phenotypes if args.phenotypes is not None else cfg["phenotypes"]
     # binary_only = args.binary_only if args.binary_only is not None else cfg["binary_only"]
-    phenotypes = args.phenotypes if args.phenotypes is not None else []
+    # phenotypes = args.phenotypes if args.phenotypes is not None else []
     binary_only = args.binary_only if args.binary_only is not None else []
 
     # ------------------------
     # Phenotypes: survival + binary
     # ------------------------
     for name in phenotypes:
-        results_path = f"/data/results/zj2398/femr/{dataset}/classification/xgboost"
+        if dataset == "cumc":
+            results_path = f"/data/results/zj2398/femr/cumc/xgboost/xgboost"
+        else:
+            results_path = f"/data/results/zj2398/femr/{dataset}/classification/xgboost"
+        os.makedirs(results_path,exist_ok=True)
         for outcome, suffix, model in [
             ("survival", "", "deephit"),
             ("binary", "_binary", "xgboost"),
@@ -93,30 +109,30 @@ for dataset, cfg in EXPERIMENTS.items():
                 summarize(load_metrics(out_file))
                 continue
 
-            try:
-                base_dir = os.path.join(cfg["data_path"], f"{name}{suffix}")
-                if outcome == "survival":
-                    print("continue skip survival")
-                    continue
-                X, y = load_features_labels(
-                    os.path.join(base_dir, "features", f"{name}.pkl"),
-                    os.path.join(base_dir, "labels",   f"{name}.parquet"),
-                    split_path
-                )
+            # try:
+            base_dir = os.path.join(cfg["data_path"], f"{name}{suffix}")
+            if outcome == "binary":
+                print("continue skip binary")
+                continue
+            X, y = load_features_labels(
+                os.path.join(base_dir, "features", f"{name}.pkl"),
+                os.path.join(base_dir, "labels",   f"{name}.parquet"),
+                split_path
+            )
 
-                if outcome == "survival":
-                    splits = split_survival(X, y, cfg["tte_col"])
-                    metrics = train_survival(*splits, model_type="deephit")
-                else:
-                    splits = split_binary(X, y)
-                    print("begin training")
-                    metrics, pred_df = train_binary(*splits, n_jobs=args.n_jobs)
-                    pred_df.to_parquet(out_file.replace(".pickle", "_predictions.parquet"), index=False)
+            if outcome == "survival":
+                splits = split_survival(X, y, cfg["tte_col"])
+                metrics = train_survival(*splits, model_type="deephit")
+            else:
+                splits = split_binary(X, y)
+                print("begin training")
+                metrics, pred_df = train_binary(*splits, n_jobs=args.n_jobs)
+                pred_df.to_parquet(out_file.replace(".pickle", "_predictions.parquet"), index=False)
 
-                save_metrics(metrics, out_file)
+            save_metrics(metrics, out_file)
 
-            except Exception as e:
-                print(f"[ERROR] {dataset} | {name} | {outcome}: {e}")
+            # except Exception as e:
+            #     print(f"[ERROR] {dataset} | {name} | {outcome}: {e}")
 
     # ------------------------
     # Binary-only outcomes
@@ -151,5 +167,7 @@ for dataset, cfg in EXPERIMENTS.items():
 
 
 # python run_all.py --binary_only in_hospital_mortality readmission --n_jobs 24
+# /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/baseline_features_22_12_vj2292/AMI/
 # python run_all.py --binary_only long_los stroke --n_jobs 24
 # python run_all.py --binary_only masld ami --n_jobs 24
+# python run_all.py --n_jobs 24

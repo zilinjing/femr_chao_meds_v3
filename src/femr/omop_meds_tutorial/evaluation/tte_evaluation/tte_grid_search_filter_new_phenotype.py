@@ -291,18 +291,6 @@ if __name__ == "__main__":
 command:
 export CUDA_VISIBLE_DEVICES=1
 
-python tte_grid_search_filter.py \
-    --tasks masld \
-    --truncation 330 \
-    --output_name first_event \
-    --old_phenotype_path /shared/share_mala/zj2398/mimic/task/phenotype_task/
-
-python tte_grid_search_filter.py \
-    --tasks stroke \
-    --truncation 330 \
-    --output_name first_event \
-    --old_phenotype_path /shared/share_mala/zj2398/mimic/task/phenotype_task/ \
-    --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype/tte_first
 
     
 python tte_grid_search_filter_motor.py \

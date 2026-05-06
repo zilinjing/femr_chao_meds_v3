@@ -269,11 +269,21 @@ if __name__ == "__main__":
 
 '''
 python tte_grid_search_new_time_motor_new.py \
-    --tasks stroke \
+    --tasks ami,masld,stroke \
     --truncation 300 \
     --old_phenotype_path /shared/share_mala/zj2398/mimic/task/phenotype_task/results \
     --tte_cohort /shared/share_mala/zj2398/mimic/task/phenotype_task/cohort/tte \
     --model_name transformer_mtpp_T_8_V_10_730,transformer_mtpp_T_16_V_5_730,xgboost,transformer_numerical_only
+
+kuvira
+
+python tte_grid_search_new_time_motor_new.py \
+    --tasks ami,masld,stroke \
+    --truncation 300 \
+    --old_phenotype_path     /data/results/zj2398/femr/mimic/phenotype/results \
+    --tte_cohort  /data2/processed_datasets/mimic/phenotype_task/tte/ \
+    --model_name  transformer_mtpp_T_16_V_10_730,transformer_numerical_only_730
+
 
 ami,masld,stroke 
 
