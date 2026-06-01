@@ -180,7 +180,8 @@ class BatchCreator:
 
         # Purpose: capture all pre‑birth or “person” table codes as a single initial timestep.
         per_subject_token_indices.append(len(per_subject_hierarchical_tokens))
-        per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
+        # per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
+        per_subject_ages.append((birth - birth) / datetime.timedelta(days=1))
         per_subject_time_data.append([1, 0, 0, 0, 0])
         per_subject_timestamps.append(event.time.replace(tzinfo=datetime.timezone.utc).timestamp())
                 

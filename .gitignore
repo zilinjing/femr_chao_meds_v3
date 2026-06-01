@@ -10,6 +10,7 @@ ignore/*
 tutorials/trash
 tutorials/tmp_trainer
 _version.py
+src/femr/visualization/
 
 # wandb artifacts
 wandb/
