@@ -315,7 +315,8 @@ for TASK_DIR in "$CLASS_COHORT"*/; do
 
     # Determine the MOTOR prediction folder path based on observation window
     if [ -n "$OBSERVATION_WINDOW" ]; then
-        MOTOR_PREDICTION_FOLDER="$OUTPUT_DIR/"results"/$TASK_NAME/$MODEL_NAME_$OBSERVATION_WINDOW/test_predictions"
+        # MOTOR_PREDICTION_FOLDER="$OUTPUT_DIR/"results"/$TASK_NAME/$MODEL_NAME"_"$OBSERVATION_WINDOW/test_predictions"
+        MOTOR_PREDICTION_FOLDER="${OUTPUT_DIR}/results/${TASK_NAME}/${MODEL_NAME}_${OBSERVATION_WINDOW}/test_predictions"
         MOTOR_OUTPUT_DIR="$OUTPUT_DIR/"results"/$TASK_NAME/$MODEL_NAME_$OBSERVATION_WINDOW/"
     else
         MOTOR_PREDICTION_FOLDER="$OUTPUT_DIR/"results"/$TASK_NAME/$MODEL_NAME/test_predictions"
@@ -336,14 +337,8 @@ for TASK_DIR in "$CLASS_COHORT"*/; do
 
     # Execute the command
     eval $EVAL_CMD
-    # Execute the command
-    eval $EVAL_CMD
 
-    # Check if the third command succeeded
-    if [ $? -ne 0 ]; then
-        echo "Error: Running meds-evaluation failed for task $TASK_NAME"
-    fi
-    # Check if the third command succeeded
+    Check if the third command succeeded
     if [ $? -ne 0 ]; then
         echo "Error: Running meds-evaluation failed for task $TASK_NAME"
     fi
@@ -356,7 +351,7 @@ echo "All tasks processed."
 
 
 # phenotype
-# export CUDA_VISIBLE_DEVICES=4
+# export CUDA_VISIBLE_DEVICES=1
 
 # /shared/share_mala/zj2398/models/mtpp_8k/mtpp_8k_T_8_V_10/transformer/best-100620
 
@@ -405,23 +400,82 @@ echo "All tasks processed."
 
 
 
-
 # kuvira - mimic
 # bash run.sh \
 #   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader  \
 #   --num_proc           24 \
-#   --model_path         /data2/processed_datasets/zj2398/femr/cumc/survivehr/transformer/best_256914 \
-#   --model_name         transformer_survivehr \
+#   --model_path         /data/models/zj2398/femr/mimic_motor_8k/transformer/best_100620 \
+#   --model_name         motor_leak_age \
 #   --tokens_per_batch   65536 \
 #   --device             cuda:0 \
-#   --use_ntp            yes \
+#   --use_ntp            no \
 #   --cohort_type        outcome \
 #   --cache_path         /data2/huggingface/zj2398 \
 #   --min_subjects_per_batch 8 \
-#   --ontology_path       /data2/processed_datasets/zj2398/femr/cumc/survivehr/ontology.pkl \
-#   --main_split_path     /data2/processed_datasets/zj2398/femr/cumc/survivehr/main_split.csv \
-#   --output_dir   /data/results/zj2398/femr/mimic/classification  \
+#   --ontology_path       /data/models/zj2398/femr/mimic_motor_birth/ontology.pkl \
+#   --main_split_path     /data/models/zj2398/femr/mimic_motor_birth/main_split.csv \
+#   --output_dir   /data/results/zj2398/fomoh/mimic/linear_probing  \
 #   --classification_cohort /data2/processed_datasets/mimic/patient_outcome_tasks/
+
+# bash run.sh \
+#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader  \
+#   --num_proc           24 \
+#   --model_path         /data/models/zj2398/femr/mimic_motor_birth/transformer/best_134160 \
+#   --model_name         motor_birth \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --use_ntp            no \
+#   --cohort_type        outcome \
+#   --cache_path         /data2/huggingface/zj2398 \
+#   --min_subjects_per_batch 8 \
+#   --ontology_path       /data/models/zj2398/femr/mimic_motor_birth/ontology.pkl \
+#   --main_split_path     /data/models/zj2398/femr/mimic_motor_birth/main_split.csv \
+#   --output_dir   /data/results/zj2398/fomoh/mimic/linear_probing  \
+#   --classification_cohort /data2/processed_datasets/mimic/patient_outcome_tasks/
+
+# kuvira - mimic
+#   --model_path          /data/models/zj2398/femr/mimic_motor_birth/transformer/best_134160
+#   --model_path         /data/models/zj2398/femr/mimic_motor_8k/transformer/best_100620 \
+#   --model_name         motor_leak_age \
+
+
+# bash run.sh \
+#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader  \
+#   --num_proc           24 \
+#   --model_path         /data/models/zj2398/femr/mimic_motor_birth/transformer/best_134160 \
+#   --model_name         motor_birth \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --use_ntp            no \
+#   --cohort_type        phenotype \
+#   --cache_path         /data2/huggingface/zj2398 \
+#   --min_subjects_per_batch 8 \
+#   --truncation  300 \
+#   --observation_window 730 \
+#   --ontology_path       /data/models/zj2398/femr/mimic_motor_birth/ontology.pkl \
+#   --main_split_path     /data/models/zj2398/femr/mimic_motor_birth/main_split.csv \
+#   --output_dir   /data/results/zj2398/fomoh/mimic/linear_probing  \
+#   --classification_cohort  /data2/processed_datasets/mimic/phenotype_task/binary/ \
+#   --tte_cohort /data2/processed_datasets/mimic/phenotype_task/tte/ 
+
+# bash run.sh \
+#   --meds_reader        /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader  \
+#   --num_proc           24 \
+#   --model_path         /data/models/zj2398/femr/mimic_motor_8k/transformer/best_100620 \
+#   --model_name         motor_leak_age \
+#   --tokens_per_batch   65536 \
+#   --device             cuda:0 \
+#   --use_ntp            no \
+#   --cohort_type        phenotype \
+#   --cache_path         /data2/huggingface/zj2398 \
+#   --min_subjects_per_batch 8 \
+#   --truncation  300 \
+#   --observation_window 730 \
+#   --ontology_path       /data/models/zj2398/femr/mimic_motor_birth/ontology.pkl \
+#   --main_split_path     /data/models/zj2398/femr/mimic_motor_birth/main_split.csv \
+#   --output_dir   /data/results/zj2398/fomoh/mimic/linear_probing  \
+#   --classification_cohort  /data2/processed_datasets/mimic/phenotype_task/binary/ \
+#   --tte_cohort /data2/processed_datasets/mimic/phenotype_task/tte/ 
 
 
 # bash run.sh \

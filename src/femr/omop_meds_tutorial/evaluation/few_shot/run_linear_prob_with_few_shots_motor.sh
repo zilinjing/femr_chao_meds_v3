@@ -187,4 +187,19 @@ echo "All tasks completed!"
 # --meds_dir /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
 # --task_list "ami,masld,stroke" \
 # --model_name motor_730
+
+# bash run_linear_prob_with_few_shots_motor.sh \
+# --base_dir /shared/share_mala/zj2398/mimic/task/patient_outcome_task/results/ \
+# --output_dir /shared/share_mala/zj2398/mimic/task/patient_outcome_task/few_shot_results/ \
+# --meds_dir /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
+# --task_list "in_hospital_mortality,long_los,readmission" \
+# --model_name motor
+
+
+# python few_shot_motor.py \
+#   --features_label_input_dir /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/models/femr/motor_large_no_visit_id/results/Schizophrenia/motor/features_with_label \
+#   --model_name motor \
+#   --task_name Schizophrenia \
+#   --output_dir /data/results/zj2398/fomoh/cumc/linear_probing/results \
+#   --meds_dir /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform 
 # '''

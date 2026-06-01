@@ -52,7 +52,6 @@ def main(args):
             break
 
         if len(train_dataset) < size or size == -1:
-            # print()
             size = len(train_dataset)
             should_terminate = True
 

@@ -13,10 +13,10 @@ set -euo pipefail
 # echo "  train   -> $TRAIN_LOG"
 # echo
 
-TIME_BINS=$1
-VALUE_BINS=$2
-PRETRAINING_DATA=$3 
-ONTOLOGY_PATH=$4
+# TIME_BINS=$1
+# PRETRAINING_DATA=$3 
+# ONTOLOGY_PATH=$4
+
 
 # ---- job 1: data prep (background) ----
 # python prepare.py \
@@ -31,10 +31,9 @@ ONTOLOGY_PATH=$4
 #   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
 
 python prepare.py \
-  --pretraining_data $PRETRAINING_DATA \
-  --ontology_path  $ONTOLOGY_PATH \
+  --pretraining_data /data/models/zj2398/femr/mimic_motor_8k \
+  --ontology_path  /data/models/zj2398/femr/mimic_motor_8k/ontology.pkl \
   --loss_type motor \
-  --num_final_tasks 6100 \
   --num_threads 32 \
   --hf_cache_path /data2/huggingface/zj2398 \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader
@@ -58,17 +57,16 @@ python prepare.py \
 #   --hf_run_name mimic_mamba_mtpp_shared_6100_bin_5 \
 #   --loss_type mtpp_shared
 
-# accelerate launch \
-#   --num_processes 3 \
-
-python pretrain.py \
-  --pretraining_data $PRETRAINING_DATA \
+accelerate launch \
+  --num_processes 4 \
+  pretrain.py \
+  --pretraining_data /data/models/zj2398/femr/mimic_motor_8k \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \
-  --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer \
+  --output_dir /data/models/zj2398/femr/mimic_motor_8k/transformer/ \
   --model transformer \
-  --n_epochs 2 \
-  --hf_run_name mimic_transformer_motor_6100_test \
+  --n_epochs 20 \
+  --hf_run_name mimic_transformer_motor \
   --loss_type motor
 
 
