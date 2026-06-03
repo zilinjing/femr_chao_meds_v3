@@ -35,6 +35,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 import meds
 import meds_reader
+import datasets
 import sklearn.metrics
 import wandb
 
@@ -140,6 +141,28 @@ def get_subject_ids_from_labels(labels: List) -> List:
         return list(set(l["subject_id"] for l in labels))
     else:
         return list(set(l.subject_id for l in labels))
+
+
+def get_or_create_batches(name, processor, database, subject_ids, cache_dir, args, use_cache):
+    """Load cached batches from <cache_dir>/<name>_batches if present, else build and save them."""
+    batch_path = os.path.join(cache_dir, f"{name}_batches")
+    if use_cache and os.path.isdir(batch_path):
+        print(f"Loading cached {name} batches from {batch_path}")
+        batches = datasets.load_from_disk(batch_path)
+    else:
+        print(f"Creating {name} batches (this may take a while)...")
+        filtered = database.filter(subject_ids)
+        batches = processor.convert_dataset(
+            filtered,
+            tokens_per_batch=args.tokens_per_batch,
+            min_subjects_per_batch=args.min_subjects_per_batch,
+            num_proc=args.num_proc,
+        )
+        if use_cache:
+            batches.save_to_disk(batch_path)
+            print(f"Saved {name} batches to {batch_path}")
+    batches.set_format("pt")
+    return batches
 
 
 def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps):
@@ -411,43 +434,24 @@ def main():
         
         # ==========================================
         # CREATE BATCHES (with observation_window)
+        # Cached to <output_dir>/cache so an interrupted run can resume without
+        # rebuilding batches. Disabled in --debug (tiny subsampled cohorts).
         # ==========================================
-        print(f"\nCreating training batches (this may take a while)...")
+        cache_dir = os.path.join(args.output_dir, "cache")
+        use_batch_cache = not args.debug
+
         train_task = LabeledSubjectTaskWithLabels(train_labels, observation_window=obs_window)
         train_processor = processor_local.FEMRBatchProcessor(tokenizer, task=train_task, cache_path=args.cache_dir)
-        train_filtered = database.filter(train_subject_ids)
-        train_batches = train_processor.convert_dataset(
-            train_filtered,
-            tokens_per_batch=args.tokens_per_batch,
-            min_subjects_per_batch=args.min_subjects_per_batch,
-            num_proc=args.num_proc,
-        )
-        train_batches.set_format("pt")
+        train_batches = get_or_create_batches("train", train_processor, database, train_subject_ids, cache_dir, args, use_batch_cache)
         num_train_batches = len(train_batches)
-        
-        print("Creating validation batches...")
+
         val_task = LabeledSubjectTaskWithLabels(val_labels, observation_window=obs_window)
         val_processor = processor_local.FEMRBatchProcessor(tokenizer, task=val_task, cache_path=args.cache_dir)
-        val_filtered = database.filter(val_subject_ids)
-        val_batches = val_processor.convert_dataset(
-            val_filtered,
-            tokens_per_batch=args.tokens_per_batch,
-            min_subjects_per_batch=args.min_subjects_per_batch,
-            num_proc=args.num_proc,
-        )
-        val_batches.set_format("pt")
-        
-        print("Creating test batches...")
+        val_batches = get_or_create_batches("val", val_processor, database, val_subject_ids, cache_dir, args, use_batch_cache)
+
         test_task = LabeledSubjectTaskWithLabels(test_labels, observation_window=obs_window)
         test_processor = processor_local.FEMRBatchProcessor(tokenizer, task=test_task, cache_path=args.cache_dir)
-        test_filtered = database.filter(test_subject_ids)
-        test_batches = test_processor.convert_dataset(
-            test_filtered,
-            tokens_per_batch=args.tokens_per_batch,
-            min_subjects_per_batch=args.min_subjects_per_batch,
-            num_proc=args.num_proc,
-        )
-        test_batches.set_format("pt")
+        test_batches = get_or_create_batches("test", test_processor, database, test_subject_ids, cache_dir, args, use_batch_cache)
 
         train_loader = DataLoader(
             train_batches, num_workers=args.num_proc, pin_memory=True,
