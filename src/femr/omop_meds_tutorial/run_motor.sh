@@ -19,10 +19,11 @@ python prepare.py \
   --loss_type motor \
   --tokens_per_batch 8192 \
   --model transformer \
-  --num_threads 32 \
+  --num_threads 64 \
   --hf_cache_path /data2/huggingface/zj2398 \
   --meds_reader /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader
-  
+
+
   # >"$PREP_LOG" 2>&1 &
 
 # ---- job 2: training (background) ----
@@ -31,7 +32,7 @@ python prepare.py \
 
 
 accelerate launch \
-  --num_processes 2 \
+  --num_processes 4 \
   pretrain.py \
   --pretraining_data /data2/processed_datasets/zj2398/femr/cumc/motor \
   --meds_reader  /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
