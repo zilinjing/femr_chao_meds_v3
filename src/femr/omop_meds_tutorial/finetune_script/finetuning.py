@@ -36,11 +36,12 @@ from tqdm import tqdm
 import meds
 import meds_reader
 import sklearn.metrics
+import wandb
 
 import femr.models.tokenizer
 import femr.splits
-from femr.omop_meds_tutorial.evaluation import processor_local
-from femr.omop_meds_tutorial.evaluation.task_local import LabeledSubjectTaskWithLabels
+import femr.models.processor as processor_local
+from femr.omop_meds_tutorial.finetune_script.task_local import LabeledSubjectTaskWithLabels
 from femr.models.architecture.embedding import FEMRModel, to_device
 from femr.models.architecture.rewrite_stat_dict import load_femr_model_with_compat
 
@@ -149,11 +150,12 @@ def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
     return LambdaLR(optimizer, lr_lambda)
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, device, debug=False):
+def train_epoch(model, dataloader, optimizer, scheduler, device, epoch,
+                global_step=0, logging_steps=1000, use_wandb=False, debug=False):
     model.train()
     total_loss = 0
     total_samples = 0
-    
+
     for batch in tqdm(dataloader, desc="Training", leave=False):
         if "batch" in batch:
             batch = batch["batch"]
@@ -166,7 +168,7 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, debug=False):
         batch_size = labels.shape[0]
         batch = to_device(batch, device)
         labels = labels.to(device)
-        
+
         if debug and total_samples == 0:
             print(f"\n===== DEBUG: Training Batch =====")
             print(f"batch keys: {batch.keys()}")
@@ -174,19 +176,32 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, debug=False):
             print(f"labels shape: {labels.shape}")
             print(f"labels unique values: {torch.unique(labels)}")
             print(f"=================================\n")
-        
+
         optimizer.zero_grad()
         logits, _ = model(batch)
         if logits.shape[0] != labels.shape[0]:
             raise ValueError(f"Shape mismatch: logits {logits.shape[0]} vs labels {labels.shape[0]}")
         loss = F.cross_entropy(logits, labels)
         loss.backward()
+        # Measure (but do not clip) the gradient norm; max_norm=inf leaves grads untouched.
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
         optimizer.step()
         scheduler.step()
         total_loss += loss.item() * batch_size
         total_samples += batch_size
-    
-    return total_loss / total_samples
+
+        global_step += 1
+        if use_wandb and wandb.run is not None and global_step % logging_steps == 0:
+            lrs = scheduler.get_last_lr()  # [backbone_lr, head_lr]
+            wandb.log({
+                "train/loss": loss.item(),
+                "train/grad_norm": float(grad_norm),
+                "train/backbone_lr": lrs[0],
+                "train/head_lr": lrs[1] if len(lrs) > 1 else lrs[0],
+                "train/epoch": epoch,
+            }, step=global_step)
+
+    return total_loss / total_samples, global_step
 
 
 def evaluate(model, dataloader, device, debug=False, collect_metadata=False):
@@ -277,14 +292,29 @@ def main():
     parser.add_argument("--lr_ratios", default=None, help="Comma-separated LR ratios, e.g. 0.05,0.5")
     parser.add_argument("--head_lr_ratios", default=None, help="Comma-separated head LR ratios, e.g. 1,5")
     parser.add_argument("--output_suffix", default="", help="Suffix for output files")
+    parser.add_argument("--cache_dir", default=None,
+                        help="Local disk for the HF dataset batch cache (~17GB/task). Avoid network FS.")
+    parser.add_argument("--observation_window", type=int, default=OBSERVATION_WINDOW,
+                        help="Lookback days for labeling; <=0 means full history (None). "
+                             "Phenotype tasks (stroke/masld/scz) use 730; outcome tasks (e.g. readmission) use <=0.")
     parser.add_argument("--debug", action="store_true", help="Run on small subset for debugging")
+    parser.add_argument("--use_wandb", action="store_true",
+                        help="Enable Weights & Biases logging (one run per LR config).")
+    parser.add_argument("--wandb_project", default="ehr_benchmark_finetune_mimic",
+                        help="W&B project name to log runs under.")
+    parser.add_argument("--wandb_entity", default=None,
+                        help="W&B entity (team/user). Defaults to your wandb default.")
+    parser.add_argument("--logging_steps", type=int, default=1000,
+                        help="Log train metrics (loss/grad_norm/lr) every N optimizer steps.")
     args = parser.parse_args()
-    
+
+    obs_window = args.observation_window if args.observation_window > 0 else None
+
     device = torch.device(args.device)
     print(f"Device: {device}")
     print(f"Task: {args.task_name}")
     print(f"Seed: {SEED}")
-    print(f"Observation window: {OBSERVATION_WINDOW} days")
+    print(f"Observation window: {obs_window} days")
     print(f"Early stopping patience: {args.patience}")
     print(f"Early stopping metric: Validation Log-loss")
     if args.debug:
@@ -293,7 +323,7 @@ def main():
     if args.lr_ratios:
         lr_ratios = [float(x) for x in args.lr_ratios.split(",")]
     else:
-        lr_ratios = [0.1, 0.2, 0.3]
+        lr_ratios = [0.05,0.1, 0.2, 0.3,0.5]
     if args.head_lr_ratios:
         head_lr_ratios = [float(x) for x in args.head_lr_ratios.split(",")]
     else:
@@ -383,8 +413,8 @@ def main():
         # CREATE BATCHES (with observation_window)
         # ==========================================
         print(f"\nCreating training batches (this may take a while)...")
-        train_task = LabeledSubjectTaskWithLabels(train_labels, observation_window=OBSERVATION_WINDOW)
-        train_processor = processor_local.FEMRBatchProcessor(tokenizer, task=train_task)
+        train_task = LabeledSubjectTaskWithLabels(train_labels, observation_window=obs_window)
+        train_processor = processor_local.FEMRBatchProcessor(tokenizer, task=train_task, cache_path=args.cache_dir)
         train_filtered = database.filter(train_subject_ids)
         train_batches = train_processor.convert_dataset(
             train_filtered,
@@ -396,8 +426,8 @@ def main():
         num_train_batches = len(train_batches)
         
         print("Creating validation batches...")
-        val_task = LabeledSubjectTaskWithLabels(val_labels, observation_window=OBSERVATION_WINDOW)
-        val_processor = processor_local.FEMRBatchProcessor(tokenizer, task=val_task)
+        val_task = LabeledSubjectTaskWithLabels(val_labels, observation_window=obs_window)
+        val_processor = processor_local.FEMRBatchProcessor(tokenizer, task=val_task, cache_path=args.cache_dir)
         val_filtered = database.filter(val_subject_ids)
         val_batches = val_processor.convert_dataset(
             val_filtered,
@@ -408,8 +438,8 @@ def main():
         val_batches.set_format("pt")
         
         print("Creating test batches...")
-        test_task = LabeledSubjectTaskWithLabels(test_labels, observation_window=OBSERVATION_WINDOW)
-        test_processor = processor_local.FEMRBatchProcessor(tokenizer, task=test_task)
+        test_task = LabeledSubjectTaskWithLabels(test_labels, observation_window=obs_window)
+        test_processor = processor_local.FEMRBatchProcessor(tokenizer, task=test_task, cache_path=args.cache_dir)
         test_filtered = database.filter(test_subject_ids)
         test_batches = test_processor.convert_dataset(
             test_filtered,
@@ -418,7 +448,7 @@ def main():
             num_proc=args.num_proc,
         )
         test_batches.set_format("pt")
-        
+
         train_loader = DataLoader(
             train_batches, num_workers=args.num_proc, pin_memory=True,
             collate_fn=train_processor.collate, shuffle=False,
@@ -461,7 +491,31 @@ def main():
                 print(f"[{combo_idx}/{total_combos}] Backbone LR = {backbone_lr:.2e}, Head LR = {head_lr:.2e}")
                 print(f"  (LR ratio: {lr_ratio}, Head LR ratio: {head_lr_ratio})")
                 print(f"{'='*60}")
-                
+
+                if args.use_wandb:
+                    wandb.init(
+                        project=args.wandb_project,
+                        entity=args.wandb_entity,
+                        name=f"motor_{args.task_name}{args.output_suffix}_lr{lr_ratio}_head{head_lr_ratio}",
+                        group=f"{args.task_name}{args.output_suffix}",
+                        reinit=True,
+                        config={
+                            "task_name": args.task_name,
+                            "lr_ratio": lr_ratio,
+                            "head_lr_ratio": head_lr_ratio,
+                            "backbone_lr": backbone_lr,
+                            "head_lr": head_lr,
+                            "pretraining_lr": args.pretraining_lr,
+                            "weight_decay": args.weight_decay,
+                            "num_epochs": num_epochs,
+                            "warmup_steps": warmup_steps,
+                            "total_training_steps": total_training_steps,
+                            "observation_window": obs_window,
+                            "seed": SEED,
+                            "logging_steps": args.logging_steps,
+                        },
+                    )
+
                 model, _ = load_femr_model_with_compat(
                     args.model_path,
                     model_cls=FEMRModel,
@@ -488,22 +542,33 @@ def main():
                 config_best_model_state = None
                 config_best_epoch = 0
                 patience_counter = 0
-                
+                global_step = 0
+
                 for epoch in range(num_epochs):
-                    train_loss = train_epoch(
+                    train_loss, global_step = train_epoch(
                         finetune_model, train_loader, optimizer, scheduler, device,
+                        epoch=epoch, global_step=global_step,
+                        logging_steps=args.logging_steps, use_wandb=args.use_wandb,
                         debug=(args.debug and epoch == 0)
                     )
                     val_preds, val_labels_arr, val_loss = evaluate(
                         finetune_model, val_loader, device,
                         debug=(args.debug and epoch == 0)
                     )
-                    
+
                     try:
                         val_auroc = sklearn.metrics.roc_auc_score(val_labels_arr, val_preds)
                     except ValueError:
                         val_auroc = 0.0
-                    
+
+                    if args.use_wandb and wandb.run is not None:
+                        wandb.log({
+                            "val/loss": val_loss,
+                            "val/auroc": val_auroc,
+                            "train/epoch_loss": train_loss,
+                            "epoch": epoch + 1,
+                        }, step=global_step)
+
                     if val_loss < config_best_val_loss:
                         config_best_val_loss = val_loss
                         config_best_model_state = {k: v.cpu().clone() for k, v in finetune_model.state_dict().items()}
@@ -519,7 +584,12 @@ def main():
                         break
                 
                 print(f"  Best epoch: {config_best_epoch} with Val Loss: {config_best_val_loss:.4f}")
-                
+
+                if args.use_wandb and wandb.run is not None:
+                    wandb.run.summary["best_val_loss"] = config_best_val_loss
+                    wandb.run.summary["best_epoch"] = config_best_epoch
+                    wandb.finish()
+
                 all_results.append({
                     "lr_ratio": lr_ratio,
                     "head_lr_ratio": head_lr_ratio,
@@ -548,7 +618,7 @@ def main():
         print(f"Best Val Loss: {best_val_loss:.4f}")
         print(f"Evaluating on TEST set...")
         print(f"{'='*60}")
-        
+
         model, _ = load_femr_model_with_compat(
             args.model_path,
             model_cls=FEMRModel,
@@ -558,26 +628,47 @@ def main():
         )
         finetune_model = FineTuneModel(model, hidden_size, num_classes=2).to(device)
         finetune_model.load_state_dict(best_model_state)
-        
+
         test_results = evaluate(finetune_model, test_loader, device, collect_metadata=True)
         test_preds, test_labels_arr, test_loss, test_sids, test_pred_ts, test_event_ts = test_results
-        
+
         try:
             test_auroc_raw = sklearn.metrics.roc_auc_score(test_labels_arr, test_preds)
         except ValueError:
             print("Warning: Only one class in test set")
             test_auroc_raw = 0.0
-            
+
         print(f"TEST Loss (raw): {test_loss:.4f}")
         print(f"TEST AUROC (raw): {test_auroc_raw:.4f}")
         print(f"TEST predictions (raw): {len(test_preds)}")
-        
+
+        if args.use_wandb:
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=f"{args.task_name}{args.output_suffix}_summary",
+                group=f"{args.task_name}{args.output_suffix}",
+                reinit=True,
+                config={"best_config": best_config},
+            )
+            wandb.log({
+                "test/auroc": test_auroc_raw,
+                "test/loss": test_loss,
+                "best_val_loss": best_val_loss,
+            })
+            wandb.run.summary.update({
+                "test/auroc": test_auroc_raw,
+                "test/loss": test_loss,
+                "best_val_loss": best_val_loss,
+            })
+            wandb.finish()
+
         # ==========================================
         # SAVE RAW RESULTS (apply fix_prediction_times.py afterwards)
         # ==========================================
         output_path = Path(args.output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        
+
         raw_df = pl.DataFrame({
             "subject_id": pl.Series(test_sids, dtype=pl.Int64),
             "prediction_time": pl.Series(test_event_ts, dtype=pl.Int64).cast(pl.Datetime("ns")),
@@ -585,13 +676,14 @@ def main():
             "predicted_boolean_value": (test_preds >= 0.5).tolist(),
             "boolean_value": test_labels_arr.astype(bool).tolist(),
         })
-        
-        output_file = output_path / f"motor_{num_training}{args.output_suffix}_raw.parquet"
+
+        output_file = output_path / f"motor_{args.task_name}_{num_training}{args.output_suffix}_raw.parquet"
         raw_df.write_parquet(output_file)
         print(f"Saved raw: {output_file} ({len(raw_df)} rows)")
         print(f"Run fix_prediction_times.py to get final deduped output")
-        
+
         metrics = {
+            "task_name": args.task_name,
             "test_auroc_raw": float(test_auroc_raw),
             "test_loss": float(test_loss),
             "best_val_loss": float(best_val_loss),
@@ -599,20 +691,20 @@ def main():
             "num_training": num_training,
             "num_test_raw": len(test_preds),
             "num_test_expected": len(test_cohort),
-            "observation_window": OBSERVATION_WINDOW,
+            "observation_window": obs_window,
             "all_results": all_results,
             "seed": SEED,
             "patience": args.patience,
             "warmup_steps": warmup_steps,
             "total_training_steps": total_training_steps,
         }
-        
+
         # Save best model weights
-        model_file = output_path / f"motor_{num_training}{args.output_suffix}_model.pt"
+        model_file = output_path / f"motor_{args.task_name}_{num_training}{args.output_suffix}_model.pt"
         torch.save(best_model_state, model_file)
         print(f"Saved model: {model_file}")
         
-        metrics_file = output_path / f"motor_{num_training}{args.output_suffix}_metrics.json"
+        metrics_file = output_path / f"motor_{args.task_name}_{num_training}{args.output_suffix}_metrics.json"
         with open(metrics_file, "w") as f:
             json.dump(metrics, f, indent=2)
         print(f"Saved: {metrics_file}")

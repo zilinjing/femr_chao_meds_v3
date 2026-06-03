@@ -2,7 +2,7 @@
 Post-hoc join_labels matching for motor fine-tuning raw output.
 
 Usage:
-    python fix_prediction_times.py --raw_path <raw.parquet> --cohort_path <held_out.parquet> --output_path <output.parquet>
+    python dedup.py --raw_path <raw.parquet> --cohort_path <held_out.parquet> --output_path <output.parquet>
 """
 import argparse
 import numpy as np

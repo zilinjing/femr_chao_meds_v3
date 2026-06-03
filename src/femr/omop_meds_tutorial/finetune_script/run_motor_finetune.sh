@@ -1,105 +1,116 @@
 #!/bin/bash
 set -e
 
-DATASET="$1"
-TASK="$2"
-DEVICE="${3:-cuda:0}"
-shift 3 2>/dev/null || true
-EXTRA_ARGS="$@"
+# ============================================================
+# MOTOR fine-tuning launcher (flag-based)
+#
+# Usage:
+#   bash run_motor_finetune.sh --task <stroke|masld|readmission> [flags...]
 
-# ============== CUMC PATHS ==============
-if [ "$DATASET" == "CUMC" ]; then
-    MEDS_READER="/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader"
-    MODEL_PATH="/data/models/zj2398/femr/cumc_full/tpp/transformer/checkpoint-547696"
-    TOKENIZER_PATH="/data/models/zj2398/femr/cumc_full/tpp/tokenizer"
-    ONTOLOGY_PATH="/data/models/zj2398/femr/cumc_full/tpp/ontology.pkl"
-    MAIN_SPLIT_PATH="/data/models/zj2398/femr/cumc_full/tpp/main_split.csv"
+# bash run_motor_finetune.sh \
+#     --task stroke --device cuda:0 \
+#     --use_wandb --wandb_project ehr_benchmark_finetune_mimic
+#
+# All inputs are passed as --flags so the paths can be edited per cluster.
+# Every flag has a default pointing at the CURRENT cluster; override any of
+# them when running elsewhere.
+#
+# Flags:
+#   --task             stroke | masld | readmission   (required; selects cohort subdir + obs window)
+#   --device           torch device                    (default: cuda:0)
+#   --model_path       pretrained checkpoint dir (also the tokenizer dir unless --tokenizer_path is set)
+#   --tokenizer_path   dir holding dictionary.msgpack  (default: --model_path)
+#   --meds_reader      meds_reader database dir
+#   --cohort_base      dir containing <task>/{train,tuning,held_out}.parquet
+#   --ontology_path    ontology pickle
+#   --main_split_path  main_split.csv (unused for presplit cohorts, but passed through)
+#   --output_dir       results dir                     (default: <cluster>/finetune_model/<task>)
+#   --cache_dir        local-disk HF batch cache, ~17GB/task (default: $HOME/femr_ft_cache/<task>)
+#   --num_proc         worker processes                (default: 16)
+#   <anything else>    forwarded to finetuning.py (e.g. --debug, --lr_ratios 0.05,0.5)
+#
+# Examples:
+#   bash run_motor_finetune.sh --task stroke --device cuda:0
+#   bash run_motor_finetune.sh --task stroke --model_path /my/ckpt --cohort_base /my/cohorts --debug
+# ============================================================
 
-    if [ "$TASK" == "stroke" ]; then
-        COHORT_DIR="/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_sample/Ischemic_Stroke"
-    elif [ "$TASK" == "scz" ]; then
-        COHORT_DIR="/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_sample/Schizophrenia"
-    elif [ "$TASK" == "long_los" ]; then
-        COHORT_DIR="/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/patient_outcomes_sample/long_los"
-    else
-        echo "Unknown CUMC task: $TASK"
-        echo "Available: stroke, scz, long_los"
-        exit 1
-    fi
+# ---------- Defaults (current cluster) ----------
+TASK=""
+DEVICE="cuda:0"
+MODEL_PATH="/mnt/hanoverdev/scratch/t-clb-zilin/motor/motor_birth/best_134160"
+TOKENIZER_PATH="/mnt/hanoverdev/scratch/t-clb-zilin/motor/motor_birth/best_134160"
+MEDS_READER="/mnt/hanoverdev/scratch/t-clb-zilin/motor/MEDS_cohort-reader"
+COHORT_BASE="/mnt/hanoverdev/scratch/t-clb-zilin/motor/fomoh_subsample_100k"
+ONTOLOGY_PATH="/mnt/hanoverdev/scratch/t-clb-zilin/motor/motor_pre/ontology.pkl"
+MAIN_SPLIT_PATH="/mnt/hanoverdev/scratch/t-clb-zilin/motor/motor_pre/main_split.csv"
+OUTPUT_DIR=""                                                        # default set per-task after parsing (see below)
+CACHE_DIR=""                                                         # default set per-task after parsing (see below)
+NUM_PROC=24
+EXTRA_ARGS=()
 
-# ============== MIMIC PATHS ==============
-elif [ "$DATASET" == "MIMIC" ]; then
-    MEDS_READER="/data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader"
-    MODEL_PATH="/data/models/zj2398/femr/mimic_motor_8k/output/best_100620"
-    TOKENIZER_PATH="/data/models/zj2398/femr/mimic_motor_8k/tokenizer"
-    ONTOLOGY_PATH="/data/models/zj2398/femr/mimic_motor_8k/ontology.pkl"
-    MAIN_SPLIT_PATH="/data/models/zj2398/femr/mimic_motor_8k/main_split.csv"
 
-    if [ "$TASK" == "stroke" ]; then
-        COHORT_DIR="/data2/processed_datasets/mimic/fomoh_subsample_100k/stroke"
-    elif [ "$TASK" == "masld" ]; then
-        COHORT_DIR="/data2/processed_datasets/mimic/fomoh_subsample_100k/masld"
-    elif [ "$TASK" == "readmission" ]; then
-        COHORT_DIR="/data2/processed_datasets/mimic/fomoh_subsample_100k/readmission"
-    else
-        echo "Unknown MIMIC task: $TASK"
-        echo "Available: stroke, masld, readmission"
-        exit 1
-    fi
 
-else
-    echo "Usage: $0 <CUMC|MIMIC> <task> [device] [extra_args]"
-    echo ""
-    echo "CUMC tasks: stroke, scz, long_los"
-    echo "MIMIC tasks: stroke, masld, readmission"
-    echo ""
-    echo "Examples:"
-    echo "  $0 CUMC stroke cuda:0"
-    echo "  $0 CUMC stroke cuda:0 --debug"
+# ---------- Parse flags ----------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --task)            TASK="$2"; shift 2 ;;
+        --device)          DEVICE="$2"; shift 2 ;;
+        --model_path)      MODEL_PATH="$2"; shift 2 ;;
+        --tokenizer_path)  TOKENIZER_PATH="$2"; shift 2 ;;
+        --meds_reader)     MEDS_READER="$2"; shift 2 ;;
+        --cohort_base)     COHORT_BASE="$2"; shift 2 ;;
+        --ontology_path)   ONTOLOGY_PATH="$2"; shift 2 ;;
+        --main_split_path) MAIN_SPLIT_PATH="$2"; shift 2 ;;
+        --output_dir)      OUTPUT_DIR="$2"; shift 2 ;;
+        --cache_dir)       CACHE_DIR="$2"; shift 2 ;;
+        --num_proc)        NUM_PROC="$2"; shift 2 ;;
+        *)                 EXTRA_ARGS+=("$1"); shift ;;   # forward unknown flags to finetuning.py
+    esac
+done
+
+if [ -z "$TASK" ]; then
+    echo "Usage: bash $0 --task <stroke|masld|readmission> [--device cuda:0] [--model_path ...] [...]"
     exit 1
 fi
 
-# Map task names to match other models' output directories
-if [ "$DATASET" == "CUMC" ]; then
-    if [ "$TASK" == "stroke" ]; then
-        OUTPUT_DIR="/data/results/foundation_benchmarking/${DATASET}/fine_tune/Ischemic_Stroke"
-    elif [ "$TASK" == "scz" ]; then
-        OUTPUT_DIR="/data/results/foundation_benchmarking/${DATASET}/fine_tune/Schizophrenia"
-    else
-        OUTPUT_DIR="/data/results/foundation_benchmarking/${DATASET}/fine_tune/${TASK}"
-    fi
-else
-    OUTPUT_DIR="/data/results/foundation_benchmarking/${DATASET}/fine_tune/${TASK}"
-fi
+# ---------- Derived / less-frequently-changed ----------
+TOKENIZER_PATH="${TOKENIZER_PATH:-$MODEL_PATH}"                       # checkpoint dir holds dictionary.msgpack
+COHORT_DIR="$COHORT_BASE/$TASK"
+OUTPUT_DIR="${OUTPUT_DIR:-/mnt/hanoverdev/scratch/t-clb-zilin/motor/finetune_model/$TASK}"
+CACHE_DIR="${CACHE_DIR:-$HOME/femr_ft_cache/$TASK}"                  # local disk, not the blobfuse2 scratch
+
+# ---------- Observation window: phenotype=730, outcome=full history ----------
+case "$TASK" in
+    stroke|masld|scz|schizophrenia)
+        OBS_WINDOW=730 ;;
+    *)
+        OBS_WINDOW=-1 ;;   # <=0 => full history (None), e.g. readmission
+esac
+
+mkdir -p "$CACHE_DIR" "$OUTPUT_DIR"
 
 echo "========================================"
-echo "Dataset: $DATASET"
-echo "Task: $TASK"
-echo "Device: $DEVICE"
-echo "Model: $MODEL_PATH"
-echo "Tokenizer: $TOKENIZER_PATH"
-echo "Cohort: $COHORT_DIR"
-echo "Output: $OUTPUT_DIR"
-echo "Extra args: $EXTRA_ARGS"
+echo "Task:          $TASK"
+echo "Device:        $DEVICE"
+echo "Model:         $MODEL_PATH"
+echo "Tokenizer:     $TOKENIZER_PATH"
+echo "MEDS reader:   $MEDS_READER"
+echo "Cohort:        $COHORT_DIR"
+echo "Ontology:      $ONTOLOGY_PATH"
+echo "Main split:    $MAIN_SPLIT_PATH"
+echo "Output:        $OUTPUT_DIR"
+echo "Cache:         $CACHE_DIR"
+echo "Obs window:    $OBS_WINDOW"
+echo "Extra args:    ${EXTRA_ARGS[*]}"
 echo "========================================"
 
-# Verify paths exist
-if [ ! -d "$COHORT_DIR" ]; then
-    echo "ERROR: Cohort directory does not exist: $COHORT_DIR"
-    exit 1
-fi
+# ---------- Verify required paths exist ----------
+for p in "$COHORT_DIR" "$MODEL_PATH" "$MEDS_READER" "$TOKENIZER_PATH"; do
+    if [ ! -d "$p" ]; then echo "ERROR: directory does not exist: $p"; exit 1; fi
+done
+if [ ! -f "$ONTOLOGY_PATH" ]; then echo "ERROR: ontology file does not exist: $ONTOLOGY_PATH"; exit 1; fi
 
-if [ ! -d "$MODEL_PATH" ]; then
-    echo "ERROR: Model path does not exist: $MODEL_PATH"
-    exit 1
-fi
-
-if [ ! -d "$TOKENIZER_PATH" ]; then
-    echo "ERROR: Tokenizer path does not exist: $TOKENIZER_PATH"
-    exit 1
-fi
-
-python -u -m femr.omop_meds_tutorial.evaluation.finetune_motor_e2e \
+python -u -m femr.omop_meds_tutorial.finetune_script.finetuning \
     --meds_reader "${MEDS_READER}" \
     --model_path "${MODEL_PATH}" \
     --tokenizer_path "${TOKENIZER_PATH}" \
@@ -109,10 +120,12 @@ python -u -m femr.omop_meds_tutorial.evaluation.finetune_motor_e2e \
     --output_dir "${OUTPUT_DIR}" \
     --task_name "${TASK}" \
     --device "${DEVICE}" \
-    --num_proc ${NUM_PROC:-16} \
+    --cache_dir "${CACHE_DIR}" \
+    --observation_window "${OBS_WINDOW}" \
+    --num_proc "${NUM_PROC}" \
     --tokens_per_batch 65536 \
     --min_subjects_per_batch 8 \
     --num_epochs 10 \
     --weight_decay 0.1 \
     --pretraining_lr 0.00001 \
-    $EXTRA_ARGS
+    "${EXTRA_ARGS[@]}"
