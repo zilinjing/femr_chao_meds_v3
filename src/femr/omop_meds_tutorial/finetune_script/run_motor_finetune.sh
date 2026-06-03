@@ -30,8 +30,20 @@ set -e
 #   <anything else>    forwarded to finetuning.py (e.g. --debug, --lr_ratios 0.05,0.5)
 #
 # Examples:
-#   bash run_motor_finetune.sh --task stroke --device cuda:0
-#   bash run_motor_finetune.sh --task stroke --model_path /my/ckpt --cohort_base /my/cohorts --debug
+# bash run_motor_finetune.sh \
+#     --task stroke \
+#     --device cuda:0 \
+#     --model_path /data/models/zj2398/femr/mimic_motor_birth/transformer/best_134160 \
+#     --tokenizer_path  /data/models/zj2398/femr/mimic_motor_birth/transformer/best_134160 \
+#     --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+#     --cohort_base   /data2/processed_datasets/mimic/fomoh_subsample_100k \
+#     --ontology_path   /data/models/zj2398/femr/mimic_motor_birth/ontology.pkl \
+#     --main_split_path /data/models/zj2398/femr/mimic_motor_birth/main_split.csv \
+#     --output_dir /data/models/zj2398/femr/mimic_motor_birth/finetune_model/stroke \
+#     --cache_dir /data2/huggingface/zj2398 \
+#     --num_proc 32 \
+#     --use_wandb \
+#     --wandb_project ehr_benchmark_finetune_mimic
 # ============================================================
 
 # ---------- Defaults (current cluster) ----------
@@ -74,10 +86,10 @@ if [ -z "$TASK" ]; then
 fi
 
 # ---------- Derived / less-frequently-changed ----------
-TOKENIZER_PATH="${TOKENIZER_PATH:-$MODEL_PATH}"                       # checkpoint dir holds dictionary.msgpack
+# TOKENIZER_PATH="${TOKENIZER_PATH:-$MODEL_PATH}"                       # checkpoint dir holds dictionary.msgpack
 COHORT_DIR="$COHORT_BASE/$TASK"
-OUTPUT_DIR="${OUTPUT_DIR:-/mnt/hanoverdev/scratch/t-clb-zilin/motor/finetune_model/$TASK}"
-CACHE_DIR="${CACHE_DIR:-$HOME/femr_ft_cache/$TASK}"                  # local disk, not the blobfuse2 scratch
+# OUTPUT_DIR="${OUTPUT_DIR:-/mnt/hanoverdev/scratch/t-clb-zilin/motor/finetune_model/$TASK}"
+# CACHE_DIR="${CACHE_DIR:-$HOME/femr_ft_cache/$TASK}"                  # local disk, not the blobfuse2 scratch
 
 # ---------- Observation window: phenotype=730, outcome=full history ----------
 case "$TASK" in
