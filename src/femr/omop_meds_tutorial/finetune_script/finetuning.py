@@ -30,7 +30,10 @@ import polars as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 import meds
@@ -174,12 +177,13 @@ def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
 
 
 def train_epoch(model, dataloader, optimizer, scheduler, device, epoch,
-                global_step=0, logging_steps=1000, use_wandb=False, debug=False):
+                global_step=0, logging_steps=1000, use_wandb=False, debug=False,
+                use_amp=False, disable_tqdm=False):
     model.train()
     total_loss = 0
     total_samples = 0
 
-    for batch in tqdm(dataloader, desc="Training", leave=False):
+    for batch in tqdm(dataloader, desc="Training", leave=False, disable=disable_tqdm):
         if "batch" in batch:
             batch = batch["batch"]
         labels = batch["task"]["labels"]
@@ -201,10 +205,12 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, epoch,
             print(f"=================================\n")
 
         optimizer.zero_grad()
-        logits, _ = model(batch)
-        if logits.shape[0] != labels.shape[0]:
-            raise ValueError(f"Shape mismatch: logits {logits.shape[0]} vs labels {labels.shape[0]}")
-        loss = F.cross_entropy(logits, labels)
+        # bf16 autocast (no-op when use_amp=False); needs no GradScaler for bf16.
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_amp):
+            logits, _ = model(batch)
+            if logits.shape[0] != labels.shape[0]:
+                raise ValueError(f"Shape mismatch: logits {logits.shape[0]} vs labels {labels.shape[0]}")
+            loss = F.cross_entropy(logits, labels)
         loss.backward()
         # Measure (but do not clip) the gradient norm; max_norm=inf leaves grads untouched.
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
@@ -227,7 +233,8 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, epoch,
     return total_loss / total_samples, global_step
 
 
-def evaluate(model, dataloader, device, debug=False, collect_metadata=False):
+def evaluate(model, dataloader, device, debug=False, collect_metadata=False,
+             use_amp=False, disable_tqdm=False):
     """Evaluate model. If collect_metadata=True, also return subject_ids, prediction_timestamps, and event_timestamps from task data."""
     model.eval()
     all_preds = []
@@ -239,7 +246,7 @@ def evaluate(model, dataloader, device, debug=False, collect_metadata=False):
     total_samples = 0
     
     with torch.no_grad():
-        for idx, batch in enumerate(tqdm(dataloader, desc="Evaluating", leave=False)):
+        for idx, batch in enumerate(tqdm(dataloader, desc="Evaluating", leave=False, disable=disable_tqdm)):
             if "batch" in batch:
                 batch = batch["batch"]
             
@@ -277,11 +284,12 @@ def evaluate(model, dataloader, device, debug=False, collect_metadata=False):
                 print(f"task keys: {batch['task'].keys()}")
                 print(f"=============================\n")
             
-            logits, _ = model(batch)
-            loss = F.cross_entropy(logits, labels_device)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_amp):
+                logits, _ = model(batch)
+                loss = F.cross_entropy(logits, labels_device)
             total_loss += loss.item() * batch_size
             total_samples += batch_size
-            probs = F.softmax(logits, dim=1)[:, 1]
+            probs = F.softmax(logits.float(), dim=1)[:, 1]  # fp32 softmax for stable probs
             
             all_preds.extend(probs.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
@@ -321,6 +329,9 @@ def main():
                         help="Lookback days for labeling; <=0 means full history (None). "
                              "Phenotype tasks (stroke/masld/scz) use 730; outcome tasks (e.g. readmission) use <=0.")
     parser.add_argument("--debug", action="store_true", help="Run on small subset for debugging")
+    parser.add_argument("--amp", action="store_true",
+                        help="Enable bf16 autocast (mixed precision). Independent of DDP; "
+                             "halves activation memory and speeds up matmuls on A100.")
     parser.add_argument("--use_wandb", action="store_true",
                         help="Enable Weights & Biases logging (one run per LR config).")
     parser.add_argument("--wandb_project", default="ehr_benchmark_finetune_mimic",
@@ -333,7 +344,21 @@ def main():
 
     obs_window = args.observation_window if args.observation_window > 0 else None
 
-    device = torch.device(args.device)
+    # ----- Distributed (DDP) setup. torchrun sets WORLD_SIZE/RANK/LOCAL_RANK. -----
+    # WORLD_SIZE unset -> single-process path, byte-identical to before.
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    distributed = world_size > 1
+    if distributed:
+        local_rank = int(os.environ["LOCAL_RANK"])
+        rank = int(os.environ["RANK"])
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    else:
+        rank, local_rank = 0, 0
+        device = torch.device(args.device)
+    is_main = (rank == 0)
+
     print(f"Device: {device}")
     print(f"Task: {args.task_name}")
     print(f"Seed: {SEED}")
@@ -440,6 +465,12 @@ def main():
         cache_dir = os.path.join(args.output_dir, "cache")
         use_batch_cache = not args.debug
 
+        # Build the shared HF batch cache once: under DDP, non-main ranks wait here until
+        # rank 0 has populated <output_dir>/cache, then read it (no concurrent-write race).
+        # If the cache already exists, every rank just load_from_disk's it (barrier is a no-op).
+        if distributed and not is_main:
+            dist.barrier()
+
         train_task = LabeledSubjectTaskWithLabels(train_labels, observation_window=obs_window)
         train_processor = processor_local.FEMRBatchProcessor(tokenizer, task=train_task, cache_path=args.cache_dir)
         train_batches = get_or_create_batches("train", train_processor, database, train_subject_ids, cache_dir, args, use_batch_cache)
@@ -453,8 +484,15 @@ def main():
         test_processor = processor_local.FEMRBatchProcessor(tokenizer, task=test_task, cache_path=args.cache_dir)
         test_batches = get_or_create_batches("test", test_processor, database, test_subject_ids, cache_dir, args, use_batch_cache)
 
+        if distributed and is_main:
+            dist.barrier()  # release the other ranks now that the cache exists
+
+        # Shard the (already globally pre-shuffled, seed 342342) training batches across ranks.
+        # shuffle=False mirrors single-GPU semantics; drop_last=False pads to equal steps/rank
+        # so no DDP all-reduce hang. val/test loaders stay plain (full set, rank-0 inference).
+        train_sampler = DistributedSampler(train_batches, shuffle=False) if distributed else None
         train_loader = DataLoader(
-            train_batches, num_workers=args.num_proc, pin_memory=True,
+            train_batches, sampler=train_sampler, num_workers=args.num_proc, pin_memory=True,
             collate_fn=train_processor.collate, shuffle=False,
         )
         val_loader = DataLoader(
@@ -466,7 +504,7 @@ def main():
             collate_fn=test_processor.collate, shuffle=False,
         )
         
-        steps_per_epoch = num_train_batches
+        steps_per_epoch = len(train_loader)   # per-rank under DDP (sampler-padded)
         total_training_steps = steps_per_epoch * num_epochs
         warmup_steps = steps_per_epoch
         print(f"Steps per epoch: {steps_per_epoch}")
@@ -491,12 +529,13 @@ def main():
                 backbone_lr = args.pretraining_lr * lr_ratio
                 head_lr = backbone_lr * head_lr_ratio
                 
-                print(f"\n{'='*60}")
-                print(f"[{combo_idx}/{total_combos}] Backbone LR = {backbone_lr:.2e}, Head LR = {head_lr:.2e}")
-                print(f"  (LR ratio: {lr_ratio}, Head LR ratio: {head_lr_ratio})")
-                print(f"{'='*60}")
+                if is_main:
+                    print(f"\n{'='*60}")
+                    print(f"[{combo_idx}/{total_combos}] Backbone LR = {backbone_lr:.2e}, Head LR = {head_lr:.2e}")
+                    print(f"  (LR ratio: {lr_ratio}, Head LR ratio: {head_lr_ratio})")
+                    print(f"{'='*60}")
 
-                if args.use_wandb:
+                if is_main and args.use_wandb:
                     wandb.init(
                         project=args.wandb_project,
                         entity=args.wandb_entity,
@@ -528,12 +567,18 @@ def main():
                     drop_task_head=True,
                 )
                 hidden_size = model.hidden_size
-                
-                finetune_model = FineTuneModel(model, hidden_size, num_classes=2).to(device)
-                
+
+                base_model = FineTuneModel(model, hidden_size, num_classes=2).to(device)
+                # find_unused_parameters=True: the dropped task head (FEMRModel.task_model)
+                # stays registered but gets no gradient, which otherwise hangs/errors DDP.
+                train_model = DDP(
+                    base_model, device_ids=[local_rank], output_device=local_rank,
+                    find_unused_parameters=True,
+                ) if distributed else base_model
+
                 optimizer = torch.optim.AdamW([
-                    {'params': finetune_model.backbone.parameters(), 'lr': backbone_lr},
-                    {'params': finetune_model.classifier.parameters(), 'lr': head_lr},
+                    {'params': base_model.backbone.parameters(), 'lr': backbone_lr},
+                    {'params': base_model.classifier.parameters(), 'lr': head_lr},
                 ], weight_decay=args.weight_decay, betas=(0.9, 0.95))
                 
                 scheduler = get_linear_schedule_with_warmup(
@@ -550,22 +595,33 @@ def main():
 
                 for epoch in range(num_epochs):
                     train_loss, global_step = train_epoch(
-                        finetune_model, train_loader, optimizer, scheduler, device,
+                        train_model, train_loader, optimizer, scheduler, device,
                         epoch=epoch, global_step=global_step,
-                        logging_steps=args.logging_steps, use_wandb=args.use_wandb,
-                        debug=(args.debug and epoch == 0)
+                        logging_steps=args.logging_steps,
+                        use_wandb=(args.use_wandb and is_main),
+                        debug=(args.debug and epoch == 0 and is_main),
+                        use_amp=args.amp, disable_tqdm=not is_main,
                     )
-                    val_preds, val_labels_arr, val_loss = evaluate(
-                        finetune_model, val_loader, device,
-                        debug=(args.debug and epoch == 0)
-                    )
+                    # Validation runs only on rank 0 (single-process, on the unwrapped base_model);
+                    # val_loss is then broadcast so every rank makes the SAME early-stop decision.
+                    if is_main:
+                        val_preds, val_labels_arr, val_loss = evaluate(
+                            base_model, val_loader, device,
+                            debug=(args.debug and epoch == 0), use_amp=args.amp,
+                        )
+                        try:
+                            val_auroc = sklearn.metrics.roc_auc_score(val_labels_arr, val_preds)
+                        except ValueError:
+                            val_auroc = 0.0
+                    else:
+                        val_loss, val_auroc = 0.0, 0.0
 
-                    try:
-                        val_auroc = sklearn.metrics.roc_auc_score(val_labels_arr, val_preds)
-                    except ValueError:
-                        val_auroc = 0.0
+                    if distributed:
+                        vt = torch.tensor([val_loss], device=device)
+                        dist.broadcast(vt, src=0)
+                        val_loss = vt.item()
 
-                    if args.use_wandb and wandb.run is not None:
+                    if is_main and args.use_wandb and wandb.run is not None:
                         wandb.log({
                             "val/loss": val_loss,
                             "val/auroc": val_auroc,
@@ -573,47 +629,65 @@ def main():
                             "epoch": epoch + 1,
                         }, step=global_step)
 
+                    # All ranks update counters off the broadcast val_loss (identical branch ->
+                    # loops stay lock-step); only rank 0 clones the best weights and prints.
                     if val_loss < config_best_val_loss:
                         config_best_val_loss = val_loss
-                        config_best_model_state = {k: v.cpu().clone() for k, v in finetune_model.state_dict().items()}
+                        if is_main:
+                            config_best_model_state = {k: v.cpu().clone() for k, v in base_model.state_dict().items()}
                         config_best_epoch = epoch + 1
                         patience_counter = 0
-                        print(f"  Epoch {epoch+1}/{num_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val AUROC: {val_auroc:.4f} *** best ***")
+                        if is_main:
+                            print(f"  Epoch {epoch+1}/{num_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val AUROC: {val_auroc:.4f} *** best ***")
                     else:
                         patience_counter += 1
-                        print(f"  Epoch {epoch+1}/{num_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val AUROC: {val_auroc:.4f} (patience: {patience_counter}/{args.patience})")
-                    
+                        if is_main:
+                            print(f"  Epoch {epoch+1}/{num_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val AUROC: {val_auroc:.4f} (patience: {patience_counter}/{args.patience})")
+
                     if patience_counter >= args.patience:
-                        print(f"  Early stopping triggered at epoch {epoch+1}")
+                        if is_main:
+                            print(f"  Early stopping triggered at epoch {epoch+1}")
                         break
                 
-                print(f"  Best epoch: {config_best_epoch} with Val Loss: {config_best_val_loss:.4f}")
+                # Per-cell summary, wandb finish, results + global-best tracking: rank 0 only
+                # (best_model_state lives on rank 0; the test/save block below is rank-0-only).
+                if is_main:
+                    print(f"  Best epoch: {config_best_epoch} with Val Loss: {config_best_val_loss:.4f}")
 
-                if args.use_wandb and wandb.run is not None:
-                    wandb.run.summary["best_val_loss"] = config_best_val_loss
-                    wandb.run.summary["best_epoch"] = config_best_epoch
-                    wandb.finish()
+                    if args.use_wandb and wandb.run is not None:
+                        wandb.run.summary["best_val_loss"] = config_best_val_loss
+                        wandb.run.summary["best_epoch"] = config_best_epoch
+                        wandb.finish()
 
-                all_results.append({
-                    "lr_ratio": lr_ratio,
-                    "head_lr_ratio": head_lr_ratio,
-                    "backbone_lr": float(backbone_lr),
-                    "head_lr": float(head_lr),
-                    "val_loss": float(config_best_val_loss),
-                    "best_epoch": config_best_epoch
-                })
-                
-                if config_best_val_loss < best_val_loss:
-                    best_val_loss = config_best_val_loss
-                    best_model_state = config_best_model_state
-                    best_config = {
+                    all_results.append({
                         "lr_ratio": lr_ratio,
                         "head_lr_ratio": head_lr_ratio,
-                        "backbone_lr": backbone_lr,
-                        "head_lr": head_lr
-                    }
-                    print(f"  *** New global best! ***")
-        
+                        "backbone_lr": float(backbone_lr),
+                        "head_lr": float(head_lr),
+                        "val_loss": float(config_best_val_loss),
+                        "best_epoch": config_best_epoch
+                    })
+
+                    if config_best_val_loss < best_val_loss:
+                        best_val_loss = config_best_val_loss
+                        best_model_state = config_best_model_state
+                        best_config = {
+                            "lr_ratio": lr_ratio,
+                            "head_lr_ratio": head_lr_ratio,
+                            "backbone_lr": backbone_lr,
+                            "head_lr": head_lr
+                        }
+                        print(f"  *** New global best! ***")
+
+        # ---- Test eval + all file saving run single-process on rank 0. ----
+        # Barrier so all ranks finish the grid together; the test/save block has no
+        # collectives, so non-main ranks can tear down NCCL and exit right after.
+        if distributed:
+            dist.barrier()
+        if not is_main:
+            dist.destroy_process_group()
+            return
+
         # ==========================================
         # TEST EVALUATION
         # ==========================================
@@ -633,7 +707,7 @@ def main():
         finetune_model = FineTuneModel(model, hidden_size, num_classes=2).to(device)
         finetune_model.load_state_dict(best_model_state)
 
-        test_results = evaluate(finetune_model, test_loader, device, collect_metadata=True)
+        test_results = evaluate(finetune_model, test_loader, device, collect_metadata=True, use_amp=args.amp)
         test_preds, test_labels_arr, test_loss, test_sids, test_pred_ts, test_event_ts = test_results
 
         try:
@@ -712,6 +786,9 @@ def main():
         with open(metrics_file, "w") as f:
             json.dump(metrics, f, indent=2)
         print(f"Saved: {metrics_file}")
+
+    if distributed:
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":
