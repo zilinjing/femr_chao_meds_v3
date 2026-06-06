@@ -36,6 +36,7 @@ set -e
 # Examples:
 # bash run_motor_finetune.sh \
 #     --task stroke \
+#     --amp \
 #     --device cuda:0 \
 #     --model_path /data/models/zj2398/femr/mimic_motor_birth/transformer/best_134160 \
 #     --tokenizer_path  /data/models/zj2398/femr/mimic_motor_birth/transformer/best_134160 \
