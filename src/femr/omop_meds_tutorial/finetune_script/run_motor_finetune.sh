@@ -7,8 +7,8 @@ set -e
 # Usage:
 #   bash run_motor_finetune.sh --task <stroke|masld|readmission> [flags...]
 
-# bash run_motor_finetune.sh  --task masld --device cuda:0 --use_wandb --wandb_project ehr_benchmark_finetune_mimic
-# CUDA_VISIBLE_DEVICES=2,3 bash run_motor_finetune.sh --task readmission --amp  --wandb_project ehr_benchmark_finetune_mimic
+# CUDA_VISIBLE_DEVICES=0,1 bash run_motor_finetune.sh  --task masld --amp --num_gpus 2   --use_wandb --wandb_project ehr_benchmark_finetune_mimic 
+# CUDA_VISIBLE_DEVICES=0,1,2,3 bash run_motor_finetune.sh --task stroke --amp  --num_gpus 4  --use_wandb --wandb_project ehr_benchmark_finetune_mimic
 # All inputs are passed as --flags so the paths can be edited per cluster.
 # Every flag has a default pointing at the CURRENT cluster; override any of
 # them when running elsewhere.
