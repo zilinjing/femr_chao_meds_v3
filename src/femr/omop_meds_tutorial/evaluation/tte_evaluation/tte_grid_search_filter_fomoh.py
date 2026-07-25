@@ -42,7 +42,7 @@ def tte_evaluation(train_set, test_set,task,truncation=365,tte_cohort_path=None)
         )
         print(f"after train set {len(train_set)}, test_set {len(test_set)}")
     print(f"truncation is {truncation}")
-    print(train_set)
+    # print(train_set)
     val = train_set.sample(frac=0.2, replace=False, random_state=42)
     train_set = train_set.drop(val.index)
 
@@ -203,13 +203,16 @@ def tte_evaluation(train_set, test_set,task,truncation=365,tte_cohort_path=None)
     
     return results
 
-def run(tasks, old_phenotype_path_str,output_name,truncation,tte_cohort):
+def run(tasks, old_phenotype_path_str,output_name,truncation,tte_cohort,model_list):
     old_phenotype_dir = Path(old_phenotype_path_str)
     # phenotype_label_dir = Path("/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte")
     # key_cols = ["subject_id", "prediction_time", "tte_label", "time_to_event"]
     for subdir in old_phenotype_dir.iterdir():
         if not subdir.is_dir():
             continue       
+        if subdir.name not in model_list:
+            print(f"{subdir.name} not in list")
+            continue
         for task in tasks:
             # old_phenotype_path = old_phenotype_dir / "results" / task
             old_phenotype_path = subdir / task
@@ -263,6 +266,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tasks", type=str, required=True,
                         help="Comma-separated list of tasks, e.g., 'AMI,Celiac,MASLD,Ischemic_Stroke'")
+    parser.add_argument("--model_list", type=str, required=True,
+                        help="model name to run the tte tasks'")
     parser.add_argument("--old_phenotype_path", type=str, required=True,
                         help="Base directory path containing 'results/<task>/*/features_with_label/*.parquet'")
     parser.add_argument("--truncation", type=float, required=False, default="365",
@@ -274,8 +279,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     tasks_list = [t.strip() for t in args.tasks.split(",") if t.strip()]
+    model_list = [t.strip() for t in args.model_list.split(",") if t.strip()]
     print(tasks_list)
-    run(tasks_list, args.old_phenotype_path,args.output_name,args.truncation,args.tte_cohort)
+    run(tasks_list, args.old_phenotype_path,args.output_name,args.truncation,args.tte_cohort,model_list)
 
 '''
 command:
@@ -300,4 +306,12 @@ python tte_grid_search_filter_fomoh.py \
     --old_phenotype_path /data/results/zj2398/fomoh/cumc/linear_probing/ \
     --tte_cohort /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/task_labels/phenotype_tte/tte/
 
+
+python tte_grid_search_filter_fomoh.py \
+    --tasks ami,stroke,masld \
+    --truncation 300 \
+    --output_name "" \
+    --old_phenotype_path /data/results/zj2398/fomoh/mimic/linear_probing/ \
+    --model_list llama_float32,mamba_float32 \
+    --tte_cohort /data2/processed_datasets/mimic/phenotype_task/tte/
 '''

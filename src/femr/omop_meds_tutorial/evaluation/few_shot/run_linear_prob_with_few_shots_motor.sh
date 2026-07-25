@@ -81,7 +81,9 @@ if [ ! -d "$MEDS_DIR" ]; then
 fi
 
 # Iterate through each cohort folder
-for cohort_dir in "$BASE_DIR"*/; do
+# for cohort_dir in "$BASE_DIR"*/; do
+
+for cohort_dir in "$BASE_DIR"/*/; do
   # Extract task name from folder name
   task_name=$(basename "$cohort_dir")
 
@@ -98,7 +100,24 @@ for cohort_dir in "$BASE_DIR"*/; do
 
   echo "Processing cohort: $task_name"
 
-  cohort_dir="$cohort_dir/$MODEL_NAME"
+  # if [task_name.lower() in ["ami", "celiac", "cll", "htn", "ischemic_stroke","stroke","masld", "osteoporosis", "pancreatic_Cancer", "sle", "t2dm"]]; then
+  #   $MODEL_NAME_FEATURE = $MODEL_NAME"_{birth_730}"
+  # else:
+  #   $MODEL_NAME_FEATURE = $MODEL_NAME"_{birth}"
+  # fi
+
+  task_name_lower=$(echo "$task_name" | tr '[:upper:]' '[:lower:]')
+
+  if [[ "$task_name_lower" =~ ^(ami|celiac|cll|htn|ischemic_stroke|stroke|masld|osteoporosis|pancreatic_cancer|sle|t2dm)$ ]]; then
+    MODEL_NAME_FEATURE="${MODEL_NAME}_birth_730"
+  else
+    MODEL_NAME_FEATURE="${MODEL_NAME}_birth"
+  fi
+
+  echo "Processing model feature: $MODEL_NAME_FEATURE"
+
+  # cohort_dir="$cohort_dir/$MODEL_NAME_FEATURE"
+  cohort_model_dir="${cohort_dir%/}/$MODEL_NAME_FEATURE"
   # Find features_with_label directory
   features_dir=$(find "$cohort_dir" -type d -name "features_with_label" | head -n 1)
 
@@ -189,12 +208,20 @@ echo "All tasks completed!"
 # --model_name motor_730
 
 # bash run_linear_prob_with_few_shots_motor.sh \
-# --base_dir /shared/share_mala/zj2398/mimic/task/patient_outcome_task/results/ \
-# --output_dir /shared/share_mala/zj2398/mimic/task/patient_outcome_task/few_shot_results/ \
-# --meds_dir /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-# --task_list "in_hospital_mortality,long_los,readmission" \
+# --base_dir /data/results/zj2398/fomoh/cumc/linear_probing/motor/results \
+# --output_dir /data/results/foundation_benchmarking/CUMC/log_prob \
+# --meds_dir /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/post_transform_meds_reader \
 # --model_name motor
 
+# bash run_linear_prob_with_few_shots_motor.sh \
+# --base_dir /data/results/zj2398/fomoh/mimic/linear_probing/results \
+# --output_dir //data/results/foundation_benchmarking/MIMIC/log_prob \
+# --meds_dir /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+# --model_name motor
+
+
+
+# --task_list "in_hospital_mortality,long_los,readmission" \
 
 # python few_shot_motor.py \
 #   --features_label_input_dir /data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/models/femr/motor_large_no_visit_id/results/Schizophrenia/motor/features_with_label \

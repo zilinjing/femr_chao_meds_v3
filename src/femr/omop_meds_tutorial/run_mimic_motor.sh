@@ -31,8 +31,8 @@ set -euo pipefail
 #   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
 
 python prepare.py \
-  --pretraining_data /data/models/zj2398/femr/mimic_motor_8k \
-  --ontology_path  /data/models/zj2398/femr/mimic_motor_8k/ontology.pkl \
+  --pretraining_data /data/models/zj2398/femr/mimic_motor_birth \
+  --ontology_path  /data/models/zj2398/femr/mimic_motor_birth/ontology.pkl \
   --loss_type motor \
   --num_threads 32 \
   --hf_cache_path /data2/huggingface/zj2398 \
@@ -57,15 +57,15 @@ python prepare.py \
 #   --hf_run_name mimic_mamba_mtpp_shared_6100_bin_5 \
 #   --loss_type mtpp_shared
 
-accelerate launch \
-  --num_processes 4 \
-  pretrain.py \
-  --pretraining_data /data/models/zj2398/femr/mimic_motor_8k \
+# accelerate launch \
+#   --num_processes 4 \
+  python pretrain.py \
+  --pretraining_data /data/models/zj2398/femr/mimic_motor_birth \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \
-  --output_dir /data/models/zj2398/femr/mimic_motor_8k/transformer/ \
+  --output_dir /data/models/zj2398/femr/mimic_motor_birth/output/ \
   --model transformer \
-  --n_epochs 20 \
+  --n_epochs 10 \
   --hf_run_name mimic_transformer_motor \
   --loss_type motor
 

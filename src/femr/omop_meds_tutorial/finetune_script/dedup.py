@@ -5,6 +5,7 @@ Usage:
     python dedup.py --raw_path <raw.parquet> --cohort_path <held_out.parquet> --output_path <output.parquet>
     python dedup.py --raw_path /mnt/hanoverdev/scratch/t-clb-zilin/motor/finetune_model/masld/motor_masld_100000_raw.parquet --cohort_path /mnt/hanoverdev/scratch/t-clb-zilin/motor/fomoh_subsample_100k/masld/held_out.parquet --output_path /mnt/hanoverdev/scratch/t-clb-zilin/motor/finetune_model/masld/motor_100000.parquet
     python dedup.py --raw_path /mnt/hanoverdev/scratch/t-clb-zilin/motor/finetune_model/readmission/motor_readmission_100000_raw.parquet --cohort_path /mnt/hanoverdev/scratch/t-clb-zilin/motor/fomoh_subsample_100k/readmission/held_out.parquet --output_path /mnt/hanoverdev/scratch/t-clb-zilin/motor/finetune_model/readmission/motor_100000.parquet
+    python dedup.py --raw_path /data/models/zj2398/femr/mimic_motor_birth/finetune_model/stroke/motor_stroke_100000_raw.parquet --cohort_path /data2/processed_datasets/mimic/fomoh_subsample_100k/stroke/held_out.parquet --output_path /data/models/zj2398/femr/mimic_motor_birth/finetune_model/stroke/motor_100000.parquet
 """
 import argparse
 import numpy as np
