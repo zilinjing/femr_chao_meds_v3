@@ -62,6 +62,13 @@ def create_arg_parser():
         default=None
     )
     arg_parser.add_argument(
+        "--best_model_dir",
+        dest="best_model_dir",
+        type=str,
+        default=None,
+        help="Where to keep the lowest-eval_loss model. Defaults to <output_dir>/best_model.",
+    )
+    arg_parser.add_argument(
         "--learning_rate",
         dest="learning_rate",
         type=float,
@@ -193,6 +200,65 @@ class SurviveHRMetricsCallback(transformers.TrainerCallback):
         if log_data:
             log_data["train/global_step"] = state.global_step
             wandb.log(log_data)
+
+
+class SaveBestModelCallback(transformers.TrainerCallback):
+    """Keep a standalone copy of the lowest-eval_loss model on disk *while* training runs.
+
+    load_best_model_at_end only restores the best weights after trainer.train() returns, so a
+    crashed or killed job leaves nothing but the rotating checkpoint-* dirs (which also lack the
+    tokenizer that compute_features expects next to the weights). This rewrites <best_dir> every
+    time eval_loss improves, so the best model so far is always on disk.
+    """
+
+    def __init__(self, best_dir, tokenizer=None, metric_name="eval_loss", greater_is_better=False):
+        self.best_dir = pathlib.Path(best_dir)
+        self.tokenizer = tokenizer
+        self.metric_name = metric_name
+        self.operator = np.greater if greater_is_better else np.less
+        self.best_metric = None
+        self.trainer = None
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        # Resuming from a checkpoint: don't overwrite a better best_model with a worse first eval.
+        if self.best_metric is None and state.best_metric is not None:
+            self.best_metric = state.best_metric
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        if self.trainer is None or not metrics:
+            return
+        metric_value = metrics.get(self.metric_name)
+        if metric_value is None:
+            return
+        if self.best_metric is not None and not self.operator(metric_value, self.best_metric):
+            return
+        self.best_metric = metric_value
+        self.save(state, reason="new best")
+
+    def save(self, state, reason=""):
+        # save_model() writes weights + config only (no optimizer state) and is a no-op off rank 0.
+        self.trainer.save_model(str(self.best_dir))
+        if self.trainer.args.should_save:
+            self.best_dir.mkdir(parents=True, exist_ok=True)
+            if self.tokenizer is not None:
+                self.tokenizer.save_pretrained(str(self.best_dir))
+            with open(self.best_dir / "best_model_info.json", "w") as f:
+                json.dump(
+                    {
+                        "metric": self.metric_name,
+                        "value": self.best_metric,
+                        "epoch": state.epoch,
+                        "global_step": state.global_step,
+                        "source_checkpoint": state.best_model_checkpoint,
+                    },
+                    f,
+                    indent=2,
+                )
+        logger.info(
+            "Saved best model (%s=%s, epoch=%s, step=%s)%s -> %s",
+            self.metric_name, self.best_metric, state.epoch, state.global_step,
+            f" [{reason}]" if reason else "", self.best_dir,
+        )
 
 
 class SeparateEvalCollatorTrainer(transformers.Trainer):
@@ -385,7 +451,24 @@ def main():
     print(f"CONFIRMATION: The actual gradient_accumulation_steps is {trainer_config.gradient_accumulation_steps}")
 
 
-    callbacks = [CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001)]
+    if args.best_model_dir:
+        best_model_dir = pathlib.Path(args.best_model_dir)
+    else:
+        best_model_dir = pathlib.Path(output_dir) / "best_model"
+    # Same normalisation the Trainer applies to metric_for_best_model before looking it up.
+    best_metric_name = trainer_config.metric_for_best_model
+    if not best_metric_name.startswith("eval_"):
+        best_metric_name = f"eval_{best_metric_name}"
+    save_best_callback = SaveBestModelCallback(
+        best_model_dir,
+        tokenizer=tokenizer,
+        metric_name=best_metric_name,
+        greater_is_better=trainer_config.greater_is_better,
+    )
+    callbacks = [
+        CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001),
+        save_best_callback,
+    ]
     if args.loss_type in ("survivehr", "icarefm"):
         callbacks.append(SurviveHRMetricsCallback())
 
@@ -398,8 +481,20 @@ def main():
         args=trainer_config,
         callbacks=callbacks,
     )
+    save_best_callback.trainer = trainer
 
     train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
+
+    # load_best_model_at_end=True means trainer.model now holds the lowest-eval_loss weights,
+    # whether we stopped early or ran all n_epochs. Rewrite best_model from them so the final
+    # artifact is consistent with trainer_state.best_model_checkpoint.
+    save_best_callback.best_metric = trainer.state.best_metric
+    save_best_callback.save(trainer.state, reason="end of training")
+    logger.info(
+        "Training finished after %.2f/%s epochs (best checkpoint: %s). Best model -> %s",
+        trainer.state.epoch or 0.0, args.n_epochs, trainer.state.best_model_checkpoint, best_model_dir,
+    )
+
     trainer.log_metrics("train", train_result.metrics)
     trainer.save_metrics("train", train_result.metrics)
     trainer.save_state()
