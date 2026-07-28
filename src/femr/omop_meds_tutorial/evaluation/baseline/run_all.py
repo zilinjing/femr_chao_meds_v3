@@ -45,38 +45,38 @@ def load_features_labels(feature_path, label_path, split_path):
     return X, labels
 
 
-# EXPERIMENTS = {
-#     "mimic": {
-#         "data_path": "/data2/processed_datasets/mimic/baseline_features_22_12_vj2292/",
-#         "tte_col": "time_to_event_days",
-
-#         "phenotypes": [
-#             "ami",
-#             "stroke",
-#             "masld",
-#         ],
-
-#         "binary_only": [
-#             "in_hospital_mortality",
-#             "readmission",
-#             "long_los",
-#         ],
-#     },
-# }
-
 EXPERIMENTS = {
-    "cumc": {
-        "data_path": "/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/baseline_features_22_12_vj2292/",
-        "tte_col": "time_to_event",
+    "mimic": {
+        "data_path": "/data2/processed_datasets/mimic/baseline_features_22_12_vj2292/",
+        "tte_col": "time_to_event_days",
 
         "phenotypes": [
-            "AMI",
-            "Ischemic_Stroke",
-            "MASLD",
-            "Celiac"
+            "ami",
+            "stroke",
+            "masld",
+        ],
+
+        "binary_only": [
+            "in_hospital_mortality",
+            "readmission",
+            "long_los",
         ],
     },
 }
+
+# EXPERIMENTS = {
+#     "cumc": {
+#         "data_path": "/data2/processed_datasets/ehr_foundation_data/ohdsi_cumc_deid/ohdsi_cumc_deid_2023q4r3_v3_mapped/baseline_features_22_12_vj2292/",
+#         "tte_col": "time_to_event",
+
+#         "phenotypes": [
+#             "AMI",
+#             "Ischemic_Stroke",
+#             "MASLD",
+#             "Celiac"
+#         ],
+#     },
+# }
 
 for dataset, cfg in EXPERIMENTS.items():
     split_path = "/data2/processed_datasets/zj2398/femr/{}/main_split.csv".format(dataset)
