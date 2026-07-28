@@ -124,7 +124,7 @@ def create_arg_parser():
         "--loss_type",
         dest="loss_type",
         type=str,
-        choices=["motor", "tpp", "mtpp_shared", "mtpp_value", "ntp", "survivehr", "icarefm"],
+        choices=["motor", "tpp", "mtpp_shared", "mtpp_factorized", "mtpp_value", "ntp", "survivehr", "icarefm"],
         default="motor",
         required=True,
     )
@@ -241,7 +241,8 @@ def main():
     # import femr.models.tasks as _tasks_mod
     # _tasks_mod.MOTORTask = _MOTORImpl
 
-    task_loss_type = "mtpp" if args.loss_type == "mtpp_shared" else args.loss_type
+    # mtpp_factorized is the ORA-Factorized ablation: same task/batches as ORA, different head.
+    task_loss_type = "mtpp" if args.loss_type in ("mtpp_shared", "mtpp_factorized") else args.loss_type
     task_path = pretraining_data / f'{task_loss_type}_task.pkl'
     with open(task_path, 'rb') as f:
         task = pickle.load(f)

@@ -1174,6 +1174,179 @@ class MTPPSharedTaskHead(nn.Module):
 
         return loss, result
 
+class MTPPFactorizedTaskHead(nn.Module):
+    """ORA-Factorized: the ORA head with the time-value table forced to be a multiplication table.
+
+    ORA (`MTPPSharedTaskHead`) predicts, for each numerical code, a free table of `T x V`
+    probabilities over (time bin, value bin) pairs.  This head instead predicts two separate
+    lists -- `when` over the T time bins and `what` over the V value bins -- which is the same
+    as building that table as `cell[k, l] = when[k] * what[l]`.  Every row of such a table has
+    the same shape, so the value distribution cannot depend on the horizon.
+
+    Under that constraint the ORA loss splits term for term into the "two separate losses"
+    design (one loss for event timing, one for values) that Reviewer 1 asks about:
+
+        observed  : -log cell[t*, v*]            ->  -log when[t*]  -  log what[v*]
+        censored  : -log(1 - sum of cells < c*)  ->  -log(1 - sum of when[] < c*)
+
+    Everything else is deliberately identical to `MTPPSharedTaskHead`: the non-numerical
+    branch, the shared trunk, the value mask, the eps conventions, the survival construction,
+    and the averaging -- each (prediction point, code) pair counts once, so an observed event
+    counts once even though it now contributes two log terms.  `tests/test_mtpp_factorized.py`
+    checks that equivalence numerically.
+    """
+
+    def __init__(
+            self,
+            hidden_size: int,
+            pretraining_task_info: List[Tuple[str, float]],
+            non_numerical_task: List[str],
+            numerical_task: List[str],
+            value_bins: Union[np.ndarray, List],
+            non_numerical_task_time_bins: Union[np.ndarray, List],
+            numerical_task_time_bins: Union[np.ndarray, List],
+            final_layer_size: int,
+            linear_interpolation: bool = False,
+    ):
+        super().__init__()
+
+        value_bins = np.asarray(value_bins)
+        non_numerical_task_time_bins = np.asarray(non_numerical_task_time_bins)
+        numerical_task_time_bins = np.asarray(numerical_task_time_bins)
+
+        assert value_bins.shape[0] == numerical_task_time_bins.shape[0], "no matching dimension for number of numerical tasks"
+        assert non_numerical_task_time_bins.shape[1] == numerical_task_time_bins.shape[1], "no matching dimension for time bins"
+
+        self.num_time_bins = numerical_task_time_bins.shape[1] - 1
+        self.num_value_bins = value_bins.shape[1] - 1
+        self.non_numerical_task_time_bins = non_numerical_task_time_bins
+        self.numerical_task_time_bins = numerical_task_time_bins
+        self.value_bins = value_bins
+
+        self.numerical_tasks = numerical_task
+        self.non_numerical_tasks = non_numerical_task
+        self.final_layer_size = final_layer_size
+
+        # Shared first-stage trunk, identical to MTPPSharedTaskHead.
+        self.final_layer = nn.Linear(hidden_size, self.num_time_bins * final_layer_size)
+        self.non_numerical_task_layer = nn.Linear(final_layer_size, len(self.non_numerical_tasks))
+
+        # "when" for numerical codes: same form as the non-numerical branch.  ORA gets this
+        # marginal for free from its table; here it is parameterised directly.
+        self.numerical_time_task_layer = nn.Linear(final_layer_size, len(self.numerical_tasks))
+
+        # "what" must not depend on the time bin, so it reads the backbone feature through its
+        # own trunk rather than the time-slot features.  The output layer matches ORA's.
+        self.value_trunk = nn.Linear(hidden_size, final_layer_size)
+        self.value_task_layer = nn.Linear(final_layer_size, self.num_value_bins * len(self.numerical_tasks))
+
+        self.softmax = nn.Softmax(dim=1)
+        self.norm = femr.models.rmsnorm.RMSNorm(final_layer_size)
+        self.value_norm = femr.models.rmsnorm.RMSNorm(final_layer_size)
+
+        self.non_numerical_task_layer.bias.data.zero_()
+        self.numerical_time_task_layer.bias.data.zero_()
+        self.value_task_layer.bias.data.zero_()
+
+    @staticmethod
+    def _survival(probs: torch.Tensor) -> torch.Tensor:
+        """P(no event before each time bin), i.e. [1, 1 - cumsum(probs)[:-1]] along the time axis."""
+        cdf = torch.cumsum(probs, dim=1)
+        return torch.cat([torch.ones_like(probs[:, :1, :]), 1.0 - cdf[:, :-1, :]], dim=1)
+
+    def forward(self, features: torch.Tensor, batch: Mapping[str, torch.Tensor], return_logits=False):
+        eps = 1e-6
+        total_loss = torch.tensor(0.0, device=features.device)
+        total_count = 0
+        result = {}
+
+        # Shared trunk: [prediction_points, time_bins, final_layer_size]
+        time_features = self.norm(
+            self.final_layer(features).reshape(features.shape[0], self.num_time_bins, self.final_layer_size)
+        )
+
+        # ========== NON-NUMERICAL CODES (unchanged from ORA) ==========
+        non_numerical_probs = self.softmax(self.non_numerical_task_layer(time_features))
+        if torch.any(torch.isnan(non_numerical_probs)) or torch.any(torch.isinf(non_numerical_probs)):
+            raise ValueError("NaN/inf detected in non-numerical time probabilities")
+        assert batch["non_numerical_is_event"].shape == non_numerical_probs.shape, \
+            f"Shape mismatch: probs {non_numerical_probs.shape} vs is_event {batch['non_numerical_is_event'].shape}"
+
+        marked_bins = batch["non_numerical_is_event"]
+        is_censored = batch["non_numerical_is_censored"].unsqueeze(1).expand(-1, self.num_time_bins, -1)
+        selected_probs = torch.where(
+            is_censored,
+            torch.clamp(self._survival(non_numerical_probs), min=eps),
+            torch.clamp(non_numerical_probs, min=eps),
+        )
+        L_non = -torch.sum(torch.where(marked_bins, torch.log(selected_probs), torch.zeros_like(selected_probs)))
+
+        total_loss += L_non
+        total_count += torch.sum(marked_bins)
+
+        if return_logits:
+            result["time_dependent_logits"] = non_numerical_probs
+
+        # ========== NUMERICAL CODES (two marginals instead of a free table) ==========
+        if "numerical_time_event_bin" not in batch:
+            print("No numerical codes found in batch")
+        else:
+            time_event_in_bin = batch["numerical_time_event_bin"]    # [points, time_bins, tasks]
+            time_censor_in_bin = batch["numerical_time_censor_bin"]  # [points, time_bins, tasks]
+            value_event_in_bin = batch["numerical_value_event_bin"]  # [points, value_bins, tasks]
+            num_points, _, num_numerical_tasks = time_event_in_bin.shape
+
+            # "when": one distribution over the T time bins per numerical code.
+            when = self.softmax(self.numerical_time_task_layer(time_features)).clamp_min(eps)
+
+            # "what": one distribution over the V value bins, from a time-independent trunk.
+            value_logits = self.value_task_layer(self.value_norm(self.value_trunk(features))).reshape(
+                num_points, self.num_value_bins, num_numerical_tasks
+            )
+            valid = torch.as_tensor(batch["value_valid_mask"], device=value_logits.device, dtype=torch.bool)
+            if valid.shape[1] - self.num_value_bins == 1:
+                valid = valid[:, 1:]
+            valid = valid.T.unsqueeze(0)  # [1, value_bins, tasks]
+            assert not torch.any(value_event_in_bin & ~valid), "Events found in invalid value bins"
+            # Codes whose value quantiles collapsed keep only eps in their unusable bins.  Those
+            # bins are never scored (asserted above); the floor just avoids a 0/0 in the backward
+            # pass of log().
+            what = self.softmax(value_logits.masked_fill(~valid, -1e10)).clamp_min(eps)
+
+            # Censored: the value axis marginalises out, leaving the survival of "when".
+            survival = torch.clamp(self._survival(when), min=eps, max=1.0 - eps)
+            L_num_cens = -torch.sum(
+                torch.where(time_censor_in_bin, torch.log(survival), torch.zeros_like(when))
+            )
+
+            # Observed: -log when[t*] - log what[v*].  Both terms are restricted to the events
+            # ORA itself scores (its time-by-value outer product), so the two arms see exactly
+            # the same supervision set.
+            time_marked = time_event_in_bin & value_event_in_bin.any(dim=1, keepdim=True)
+            value_marked = value_event_in_bin & time_event_in_bin.any(dim=1, keepdim=True)
+            L_num_event = -(
+                torch.sum(torch.where(time_marked, torch.log(when), torch.zeros_like(when)))
+                + torch.sum(torch.where(value_marked, torch.log(what), torch.zeros_like(what)))
+            )
+
+            total_loss += L_num_cens + L_num_event
+            # One unit per (prediction point, code) pair, exactly as in ORA: an observed event
+            # counts once even though it contributes two log terms.
+            total_count += torch.sum(time_censor_in_bin) + torch.sum(time_marked)
+
+            if return_logits:
+                result["loss_components"] = {
+                    "L_non_num": L_non.detach(),
+                    "L_num_event": L_num_event.detach(),
+                    "L_num_censor": L_num_cens.detach(),
+                }
+                result["time_marginal_probs"] = when
+                result["value_marginal_probs"] = what
+                result["value_dependent_logits"] = when.unsqueeze(2) * what.unsqueeze(1)
+
+        return total_loss / total_count, result
+
+
 class MTPPValueTaskHead(nn.Module):
     def __init__(
             self,
@@ -1550,6 +1723,8 @@ class FEMRModel(transformers.PreTrainedModel):
         #     return MTPPTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "mtpp_shared":
             return MTPPSharedTaskHead(self.hidden_size, **task_kwargs)
+        elif self.loss_type == "mtpp_factorized":
+            return MTPPFactorizedTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "mtpp_value":
             return MTPPValueTaskHead(self.hidden_size, **task_kwargs)
         elif self.loss_type == "survivehr":
