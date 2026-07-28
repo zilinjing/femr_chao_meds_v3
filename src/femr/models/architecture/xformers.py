@@ -1,5 +1,20 @@
+import os
+
 import torch
 import xformers.ops
+
+# On Blackwell (sm_100, e.g. B200) xformers' automatic backend dispatch selects an FMHA kernel
+# whose *backward* pass fails with "CUDA error: unspecified launch failure". The forward pass
+# succeeds, so the crash only surfaces at the first loss.backward(). Pinning a verified backend
+# avoids it; both flash and cutlass were checked on B200 with this model's block-diagonal +
+# local-attention bias, and flash is ~1.7x faster. Set FEMR_ATTENTION_BACKEND=cutlass to use the
+# more general (slower) kernel, or =default to restore xformers' own dispatch.
+_ATTENTION_BACKEND = os.environ.get("FEMR_ATTENTION_BACKEND", "flash")
+_ATTENTION_OP = {
+    "flash": (xformers.ops.fmha.flash.FwOp, xformers.ops.fmha.flash.BwOp),
+    "cutlass": (xformers.ops.fmha.cutlass.FwOp, xformers.ops.fmha.cutlass.BwOp),
+    "default": None,
+}[_ATTENTION_BACKEND]
 
 # From https://github.com/facebookresearch/xformers/blob/042abc8aa47d1f5bcc2e82df041811de218924ba/tests/test_mem_eff_attention.py#L511 # noqa
 
@@ -54,4 +69,4 @@ def memory_efficient_attention_wrapper(q, k, v, attn_bias):
     if q.device.type == "cpu":
         return ref_attention_bmhk(q, k, v, attn_bias)
     else:
-        return xformers.ops.memory_efficient_attention(q, k, v, attn_bias)
+        return xformers.ops.memory_efficient_attention(q, k, v, attn_bias, op=_ATTENTION_OP)
