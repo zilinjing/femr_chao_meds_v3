@@ -11,7 +11,7 @@ import meds_reader
 import pandas as pd
 import femr.featurizers
 import pickle
-from .motor_evaluation.generate_labels import LABEL_NAMES, create_omop_meds_tutorial_arg_parser
+from .evaluation.generate_labels import LABEL_NAMES, create_omop_meds_tutorial_arg_parser
 
 
 def create_arg_parser():
