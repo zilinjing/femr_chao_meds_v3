@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# prepare.py / pretrain.py below are invoked by bare name, so pin the cwd to this script's
+# directory -- otherwise whichever copy sits in the caller's cwd runs instead.
+cd "$(dirname "$(readlink -f "$0")")"
+
 # ICareFM pretraining on MIMIC-IV, transformer backbone.
 #
 # Identical to run_survivehr.sh except for the three variables marked "differs" below, so the

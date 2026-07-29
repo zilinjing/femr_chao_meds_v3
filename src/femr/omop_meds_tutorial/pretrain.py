@@ -402,7 +402,9 @@ class SeparateEvalCollatorTrainer(transformers.Trainer):
 
 def count_epoch_tokens(train_batches, num_proc: int = 32) -> int:
     """Total tokens in one pass over the training set, used to extrapolate the sampled rates."""
-    counts = train_batches.map(
+    # The saved batches carry set_format("pt") from prepare.py, under which subject_lengths is
+    # a torch tensor and np.sum() rejects it; strip the format so map sees plain python lists.
+    counts = train_batches.with_format(None).map(
         lambda example: {"n_tokens": int(np.sum(example["transformer"]["subject_lengths"]))},
         num_proc=num_proc,
         remove_columns=train_batches.column_names,
