@@ -1,3 +1,6 @@
+'''
+We use the official survivehr implementation codes from https://github.com/cwlgadd/SurvivEHR 
+'''
 from __future__ import annotations
 
 from typing import Dict, List, Mapping, Optional, Tuple

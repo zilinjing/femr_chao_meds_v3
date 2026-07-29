@@ -17,23 +17,23 @@ set -euo pipefail
 # Re-running prepare.py reuses tokenizer/ and icarefm_task.pkl when they already exist and
 # only rebuilds train_batches/val_batches. Delete them first for a genuinely fresh fit.
 
-MODEL_DIR=/user/zj2398/cache/icarefm              # differs
+MODEL_DIR=/data2/processed_datasets/zj2398/femr/mimic/icarefm             # differs
 LOSS_TYPE=icarefm                                 # differs
-RUN_NAME=mimic_icarefm_transformer_value_1000     # differs
+RUN_NAME=mimic_icarefm_transformer_value_1000_test     # differs
 
-MEDS_READER=/shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
-HF_CACHE=/shared/share_mala/zj2398/huggingface/datasets
+MEDS_READER=/data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader
+HF_CACHE=/data2/huggingface/zj2398
 
-python prepare.py \
-  --pretraining_data "$MODEL_DIR" \
-  --ontology_path "$MODEL_DIR/ontology.pkl" \
-  --meds_reader "$MEDS_READER" \
-  --num_threads 32 \
-  --tokens_per_batch 16384 \
-  --value_count_threshold 1000 \
-  --model transformer \
-  --loss_type "$LOSS_TYPE" \
-  --hf_cache_path "$HF_CACHE"
+# python prepare.py \
+#   --pretraining_data "$MODEL_DIR" \
+#   --ontology_path "$MODEL_DIR/ontology.pkl" \
+#   --meds_reader "$MEDS_READER" \
+#   --num_threads 32 \
+#   --tokens_per_batch 16384 \
+#   --value_count_threshold 1000 \
+#   --model transformer \
+#   --loss_type "$LOSS_TYPE" \
+#   --hf_cache_path "$HF_CACHE"
 
 # accelerate launch \
 #   --num_processes 3 \
@@ -62,9 +62,9 @@ python prepare.py \
 export CUDA_VISIBLE_DEVICES=0
 
 python pretrain.py \
-  --pretraining_data /user/zj2398/cache/icarefm \
-  --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-  --output_dir /user/zj2398/cache/icarefm/transformer_profile \
+  --pretraining_data "$MODEL_DIR"  \
+  --meds_reader "$MEDS_READER" \
+  --output_dir "$MODEL_DIR/transformer" \
   --model transformer \
   --loss_type icarefm \
   --learning_rate 1e-5 \
