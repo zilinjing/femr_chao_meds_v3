@@ -1,40 +1,49 @@
 """
-Compare C-index results from any two saved survival result files.
+Paired bootstrap comparison of C-index between ORA and each baseline.
 
-Usage:
+Every model's tte_results_<TRUNCATION>.pkl was written by tte_test.py using the
+same bootstrap indices and the same test row order, so the comparison is paired;
+paired_bootstrap_test asserts that ordering matches before computing anything.
+
+Run with: python compare.py
 """
 from pathlib import Path
 import pickle
+
 from utils import paired_bootstrap_test
 
-base = Path("/shared/share_mala/zj2398/mimic/task/phenotype_task/results/")
-tasks = ["ami", "masld", "stroke"]
-baselines = [("deephit", "deephit")]
-# baselines = [("llama_730", "llama"), ("motor_730", "motor")]
-ref_dir, ref_name = "transformer_mtpp_730", "mtpp"
+BASE = Path("/shared/share_mala/zj2398/mimic/task/phenotype_task/results")
+TASKS = ["ami", "masld", "stroke"]
+TRUNCATION = 300.0
 
-# results_table[baseline_dir][task] = dict from paired_bootstrap_test
-results_table = {b[0]: {} for b in baselines}
+# Directory name of the model under test, and the baselines it is compared to.
+# Adding a model is a single line here: (directory name, display name).
+# All entries are the MIMIC transformer runs; `icarefm_730` is the transformer
+# run despite the name (the mamba one is `icare_mamba_730`).
+ORA_DIR = "transformer_mtpp_730"
+BASELINES = [
+    ("deephit", "Deephit"),
+    ("transformer_ntp_730", "NTP"),
+    ("motor_730", "MOTOR"),
+    ("icarefm_730", "ICARE-FM"),
+    ("transformer_survivehr_730", "SurviveHR"),
+]
 
-for task in tasks:
-    # with open(base/task/"cc-llama/tte_results_300.0.pkl", "rb") as f:
-    #     llama = pickle.load(f)
-    # with open(base/task/"motor_730/tte_results_300.0.pkl", "rb") as f:
-    #     motor = pickle.load(f)
-    with open(base/task/"transformer_mtpp_730/tte_results_300.0.pkl", "rb") as f:
-        mtpp = pickle.load(f)
 
-    with open(base/task/"deephit/tte_results_300.0.pkl", "rb") as f:
-        deephit = pickle.load(f)
+def load_results(task, model_dir):
+    with open(BASE / task / model_dir / f"tte_results_{TRUNCATION}.pkl", "rb") as f:
+        return pickle.load(f)
 
-    # with open(base/task/"transformer_ntp_730/tte_results_new.pkl", "rb") as f:
-    #     ntp = pickle.load(f)
 
-    # print(mtpp.keys())
+# results_table[display_name][task] = dict from paired_bootstrap_test
+results_table = {name: {} for _, name in BASELINES}
+
+for task in TASKS:
     print(f"\n=== Task: {task} ===")
-    # results_table["cc-llama"][task]  = paired_bootstrap_test(llama, mtpp, "llama", "mtpp")
-    # results_table["motor_730"][task] = paired_bootstrap_test(motor, mtpp, "motor", "mtpp")
-    results_table["deephit"][task] = paired_bootstrap_test(deephit, mtpp, "deephit", "mtpp")
+    ora = load_results(task, ORA_DIR)
+    for model_dir, name in BASELINES:
+        baseline = load_results(task, model_dir)
+        results_table[name][task] = paired_bootstrap_test(baseline, ora, name, "ORA")
 
 
 # === LaTeX table ===
@@ -43,13 +52,13 @@ def fmt_cell(r):
     star = "*" if r["p_value"] < 0.05 else ""
     return f"[{lo:.4f}, {hi:.4f}]{star}"
 
-print("\n\n=== LaTeX Table (ΔC-index 95% CI: mtpp − baseline; * = p<0.05) ===")
-print("\\begin{tabular}{l" + "c" * len(tasks) + "}")
+
+print("\n\n=== LaTeX Table (ΔC-index 95% CI: ORA − baseline; * = p<0.05) ===")
+print("\\begin{tabular}{l" + "c" * len(TASKS) + "}")
 print("\\toprule")
-print("Model & " + " & ".join(tasks) + " \\\\")
+print("Model & " + " & ".join(TASKS) + " \\\\")
 print("\\midrule")
-for b_dir, b_name in baselines:
-    row = b_name + " & " + " & ".join(fmt_cell(results_table[b_dir][t]) for t in tasks) + " \\\\"
-    print(row)
+for _, name in BASELINES:
+    print(name + " & " + " & ".join(fmt_cell(results_table[name][t]) for t in TASKS) + " \\\\")
 print("\\bottomrule")
 print("\\end{tabular}")

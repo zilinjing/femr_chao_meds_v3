@@ -1,10 +1,8 @@
 """
 Bootstrap R^2 hypothesis tests for regression models.
 
-This script compares transformer_mtpp against several baselines:
-- transformer_ntp
-- motor
-- imputation
+This script compares ORA (transformer_mtpp) against every baseline listed in
+BASELINES below. Adding a model is a one-line change there.
 
 
 Why the alignment code is more explicit than before:
@@ -45,6 +43,19 @@ DEFAULT_TASK_LIST = ["platelets", "pao2", "glucose", "creatinine"]
 DEFAULT_REGRESSION_BASE = Path("/shared/share_mala/zj2398/mimic/task/regression")
 DEFAULT_COHORT_DIR = DEFAULT_REGRESSION_BASE / "cohort" / "icu_stay_4h_100k"
 DEFAULT_SPLIT_PATH = Path("/user/zj2398/cache/mtpp_8k_T_8_V_10/main_split.csv")
+
+# Directory name of the model under test, and the baselines it is compared to.
+# All entries are the MIMIC transformer runs; `icarefm` is the transformer run
+# despite the name (the mamba one is `icare_mamba`).
+ORA_DIR = "transformer_mtpp"
+BASELINES = [
+    ("imputation", "MOST RECENT"),
+    ("transformer_ntp", "NTP"),
+    ("motor", "MOTOR"),
+    ("icarefm", "ICARE-FM"),
+    ("transformer_survivehr", "SurviveHR"),
+]
+
 N_BOOTSTRAP = 10000
 SEED = 42
 N_JOBS = 32  # number of parallel workers
@@ -123,6 +134,12 @@ def resolve_prediction_path(regression_base: Path, model_name: str, task: str) -
 
     The imputation baseline stores files under:
         <root>/imputation/results/<task>/test_predictions_50k.parquet
+
+    Later runs (icarefm, transformer_survivehr) dropped the `_50k` suffix and
+    write plain test_predictions.parquet, so we fall back to that name. The
+    `_50k` file is preferred where both exist, because for the earlier models
+    the two differ by a row or two and only the `_50k` row set matches the
+    cohort labels. check_labels() verifies whichever file we end up loading.
     """
     if model_name == "imputation":
         path = regression_base / "imputation" / "results" / task / "test_predictions_50k.parquet"
@@ -131,10 +148,13 @@ def resolve_prediction_path(regression_base: Path, model_name: str, task: str) -
         return path
 
     task_dir = regression_base / model_name / "results" / task
-    matches = sorted(task_dir.glob("*/test_predictions_50k.parquet"))
-    if len(matches) != 1:
-        raise FileNotFoundError(f"Expected exactly one prediction file under {task_dir}, found {len(matches)}")
-    return matches[0]
+    for filename in ("test_predictions_50k.parquet", "test_predictions.parquet"):
+        matches = sorted(task_dir.glob(f"*/{filename}"))
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise FileNotFoundError(f"Expected one {filename} under {task_dir}, found {len(matches)}")
+    raise FileNotFoundError(f"No test prediction parquet found under {task_dir}")
 
 
 def check_labels(reference_labels, predictions_by_model):
@@ -217,17 +237,10 @@ def main():
     args = parse_args()
     results = []
 
-    # We treat mtpp as the "model A" system and compare it against each
+    # We treat ORA as the "model A" system and compare it against each
     # baseline using the same bootstrap test implementation.
-
-    # comparison_models = ["ntp", "motor", "imputation"]
-    comparison_models = ["imputation"]
-    model_dirs = {
-        "mtpp": "transformer_mtpp",
-        # "ntp": "transformer_ntp",
-        # "motor": "motor",
-        "imputation": "imputation",
-    }
+    model_dirs = {"ora": ORA_DIR}
+    model_dirs.update({name: directory for directory, name in BASELINES})
 
     for task in args.tasks:
         print(f"\nTask: {task}")
@@ -243,7 +256,7 @@ def main():
         check_labels(reference_labels, predictions)
 
         labels = reference_labels["y_true"].to_numpy()
-        mtpp_preds = predictions["mtpp"]["y_pred"].to_numpy()
+        ora_preds = predictions["ora"]["y_pred"].to_numpy()
 
         # Report single-split point estimates for context before the bootstrap
         # comparisons.
@@ -256,13 +269,13 @@ def main():
             + ", ".join(f"{model_name}: {score:.4f}" for model_name, score in r2_scores.items())
         )
 
-        for baseline_name in comparison_models:
+        for _, baseline_name in BASELINES:
             # Hypothesis test:
-            #   H0: R2(mtpp) <= R2(baseline)
-            #   H1: R2(mtpp) >  R2(baseline)
+            #   H0: R2(ora) <= R2(baseline)
+            #   H1: R2(ora) >  R2(baseline)
             diff, ci_lo, ci_hi, p = bootstrap_r2_test(
                 labels,
-                mtpp_preds,
+                ora_preds,
                 predictions[baseline_name]["y_pred"].to_numpy(),
                 n_bootstrap=args.n_bootstrap,
                 seed=args.seed,
@@ -270,13 +283,13 @@ def main():
             )
             sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
             print(
-                f"  MTPP vs {baseline_name}: Δ={diff:+.4f}, "
+                f"  ORA vs {baseline_name}: Δ={diff:+.4f}, "
                 f"95% CI=[{ci_lo:+.4f}, {ci_hi:+.4f}], p={p:.4f} {sig}"
             )
             results.append(
                 dict(
                     task=task,
-                    comparison=f"mtpp_vs_{baseline_name}",
+                    baseline=baseline_name,
                     diff=diff,
                     ci_lo=ci_lo,
                     ci_hi=ci_hi,
@@ -286,39 +299,28 @@ def main():
 
     df_results = pd.DataFrame(results)
 
-    # Keep the simple LaTeX summary that was already in this script, now with
-    # the imputation baseline added as another comparison row.
+    # ── LaTeX table ──
     task_display = {
         "creatinine": "Creatinine",
         "platelets": "Platelets",
         "pao2": "PaO2",
         "glucose": "Glucose",
     }
-    baseline_display = {
-        # "mtpp_vs_ntp": "ntp",
-        # "mtpp_vs_motor": "MOTOR",
-        "mtpp_vs_imputation": "Imputation",
-    }
 
     cols = " & ".join(task_display.get(task, task) for task in args.tasks)
-    header = f"Method & {cols} \\\\"
 
-    rows_latex = []
-    for comp, label in baseline_display.items():
-        cells = []
-        for task in args.tasks:
-            row = df_results[(df_results.task == task) & (df_results.comparison == comp)].iloc[0]
-            sig = "*" if row.p < 0.05 else ""
-            cells.append(f"[{row.ci_lo:.3f}, {row.ci_hi:.3f}]{sig}")
-        rows_latex.append(f"{label} & {' & '.join(cells)} \\\\")
-
-    print("\n% ── LaTeX table (MTPP minus baseline, 95% CI) ──")
+    print("\n% ── LaTeX table (ORA minus baseline, 95% CI on ΔR²) ──")
     print("\\begin{tabular}{l" + "c" * len(args.tasks) + "}")
     print("\\toprule")
-    print(header)
+    print(f"Method & {cols} \\\\")
     print("\\midrule")
-    for row in rows_latex:
-        print(row)
+    for _, baseline_name in BASELINES:
+        cells = []
+        for task in args.tasks:
+            row = df_results[(df_results.task == task) & (df_results.baseline == baseline_name)].iloc[0]
+            sig = "*" if row.p < 0.05 else ""
+            cells.append(f"[{row.ci_lo:.3f}, {row.ci_hi:.3f}]{sig}")
+        print(f"{baseline_name} & {' & '.join(cells)} \\\\")
     print("\\bottomrule")
     print("\\end{tabular}")
 
