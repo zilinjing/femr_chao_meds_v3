@@ -16,9 +16,10 @@ from hydra import initialize_config_dir, compose
 from omegaconf import OmegaConf
 from femr.omop_meds_tutorial.evaluation.generate_labels import create_omop_meds_tutorial_arg_parser
 import torch.nn as nn
+from torch.profiler import ProfilerActivity, profile
 import wandb
 import datasets
-import logging 
+import logging
 
 
 datasets.disable_caching()
@@ -162,6 +163,32 @@ def create_arg_parser():
         default=42,
         help="Deterministic dynamic-threshold seed for ICareFM validation collation.",
     )
+    arg_parser.add_argument(
+        "--profile_steps",
+        dest="profile_steps",
+        type=int,
+        default=0,
+        help="Run the torch profiler over the first N training steps to measure FLOPs/token. "
+             "0 (default) disables profiling entirely. Counted in microbatches, which equal "
+             "optimizer steps (and so --max_steps) only when --gradient_accumulation_steps is 1.",
+    )
+    arg_parser.add_argument(
+        "--time_steps",
+        dest="time_steps",
+        type=int,
+        default=0,
+        help="Time the N steps that follow --profile_steps with the profiler off, to measure "
+             "seconds/token. 0 (default) skips the timing phase.",
+    )
+    arg_parser.add_argument(
+        "--max_steps",
+        dest="max_steps",
+        type=int,
+        default=-1,
+        help="Stop after N optimizer steps instead of running --n_epochs. Any value > 0 marks the "
+             "run as profiling-only: eval, checkpointing and early stopping are turned off, since "
+             "the run never reaches an epoch boundary. -1 (default) trains normally.",
+    )
     return arg_parser
 
 def count_parameters(model: nn.Module) -> int:
@@ -262,9 +289,32 @@ class SaveBestModelCallback(transformers.TrainerCallback):
 
 
 class SeparateEvalCollatorTrainer(transformers.Trainer):
-    def __init__(self, *args, eval_data_collator=None, **kwargs):
+    """Trainer with an optional eval-only collator and optional FLOPs/time profiling.
+
+    Profiling samples the first `profile_steps + time_steps` training steps:
+
+        steps [0, profile_steps)                     profiler ON  -> FLOPs per token
+        steps [profile_steps, +time_steps)           profiler OFF -> seconds per token
+        every step after that                        untouched, zero overhead
+
+    Splitting the two phases matters because the profiler adds enough per-step overhead to
+    distort wall time, so FLOPs and time cannot be read off the same steps. Both counts
+    default to 0, in which case training_step is the stock implementation.
+
+    Rates are per token rather than per step so variable-length batches don't add noise;
+    multiply them by the epoch's token count to extrapolate (see `profiling_summary`).
+    """
+
+    def __init__(self, *args, eval_data_collator=None, profile_steps=0, time_steps=0, **kwargs):
         super().__init__(*args, **kwargs)
         self.eval_data_collator = eval_data_collator
+        self.profile_steps = profile_steps
+        self.time_steps = time_steps
+        self.sampled_steps = 0     # training steps seen so far while sampling
+        self.profiled_flops = 0    # FLOPs summed over the profiled steps
+        self.profiled_tokens = 0   # tokens summed over the profiled steps
+        self.timed_seconds = 0.0   # wall time summed over the timed steps
+        self.timed_tokens = 0      # tokens summed over the timed steps
 
     def get_eval_dataloader(self, eval_dataset=None):
         if self.eval_data_collator is None:
@@ -276,6 +326,134 @@ class SeparateEvalCollatorTrainer(transformers.Trainer):
             return super().get_eval_dataloader(eval_dataset)
         finally:
             self.data_collator = train_collator
+
+    @staticmethod
+    def _num_tokens(inputs) -> int:
+        """Total tokens in a collated batch.
+
+        The "transformer" key holds the backbone input for Mamba runs too (processor.py),
+        so this works for both architectures.
+        """
+        lengths = inputs["batch"]["transformer"]["subject_lengths"]
+        if isinstance(lengths, torch.Tensor):
+            return int(lengths.sum().item())
+        return int(np.sum(lengths))
+
+    def training_step(self, model, inputs, *args, **kwargs):
+        step = self.sampled_steps
+        if step >= self.profile_steps + self.time_steps:
+            # Sampling is over (or was never enabled): stock training step, no overhead.
+            return super().training_step(model, inputs, *args, **kwargs)
+
+        self.sampled_steps += 1
+        num_tokens = self._num_tokens(inputs)
+        on_cuda = self.args.device.type == "cuda"
+
+        if step < self.profile_steps:
+            activities = [ProfilerActivity.CPU]
+            if on_cuda:
+                activities.append(ProfilerActivity.CUDA)
+            with profile(activities=activities, with_flops=True) as prof:
+                loss = super().training_step(model, inputs, *args, **kwargs)
+            self.profiled_flops += sum(
+                evt.flops for evt in prof.key_averages()
+                if evt.flops is not None and evt.flops > 0
+            )
+            self.profiled_tokens += num_tokens
+            return loss
+
+        # Timing phase. Sync around the step so async CUDA work lands inside the interval.
+        if on_cuda:
+            torch.cuda.synchronize()
+        start = time.perf_counter()
+        loss = super().training_step(model, inputs, *args, **kwargs)
+        if on_cuda:
+            torch.cuda.synchronize()
+        self.timed_seconds += time.perf_counter() - start
+        self.timed_tokens += num_tokens
+        return loss
+
+    def profiling_summary(self, total_epoch_tokens: int) -> dict:
+        """Extrapolate the sampled rates to a full epoch.
+
+        Under DDP the ranks split one epoch between them, so `total_epoch_tokens` is the sum
+        of what every rank sees. FLOPs/token is the same on each rank, so multiplying gives
+        the epoch total across all ranks. Wall time is not additive -- the ranks run
+        concurrently -- so that one is divided by world_size.
+        """
+        flops_per_token = self.profiled_flops / self.profiled_tokens if self.profiled_tokens else 0.0
+        seconds_per_token = self.timed_seconds / self.timed_tokens if self.timed_tokens else 0.0
+        world_size = max(1, self.args.world_size)
+        return {
+            "per_epoch_flops": flops_per_token * total_epoch_tokens,
+            "per_epoch_time_seconds": seconds_per_token * total_epoch_tokens / world_size,
+            "flops_per_token": flops_per_token,
+            "time_per_token_seconds": seconds_per_token,
+            "total_epoch_tokens": total_epoch_tokens,
+            "world_size": world_size,
+            "profiled_steps": min(self.sampled_steps, self.profile_steps),
+            "timed_steps": max(0, self.sampled_steps - self.profile_steps),
+            "profiled_flops": self.profiled_flops,
+            "profiled_tokens": self.profiled_tokens,
+            "timed_seconds": self.timed_seconds,
+            "timed_tokens": self.timed_tokens,
+        }
+
+
+def count_epoch_tokens(train_batches, num_proc: int = 32) -> int:
+    """Total tokens in one pass over the training set, used to extrapolate the sampled rates."""
+    counts = train_batches.map(
+        lambda example: {"n_tokens": int(np.sum(example["transformer"]["subject_lengths"]))},
+        num_proc=num_proc,
+        remove_columns=train_batches.column_names,
+        desc="Counting tokens",
+    )
+    return int(sum(counts["n_tokens"]))
+
+
+def write_profiling_metrics(trainer, total_epoch_tokens: int, output_dir: str) -> None:
+    """Write per-epoch FLOPs/time to <output_dir>/training_flops_time.json.
+
+    Reported per epoch only. Runs end on early stopping rather than at --n_epochs, so the
+    epoch count of a given run is a property of that run, not of this measurement -- multiply
+    per_epoch_flops / per_epoch_time_seconds by the epochs the real run actually reached.
+    """
+    summary = trainer.profiling_summary(total_epoch_tokens)
+
+    if summary["profiled_steps"] < trainer.profile_steps:
+        logger.warning(
+            "Only %s/%s profiling steps ran -- FLOPs/token is based on a short sample.",
+            summary["profiled_steps"], trainer.profile_steps,
+        )
+    if summary["timed_steps"] < trainer.time_steps:
+        logger.warning(
+            "Only %s/%s timing steps ran -- seconds/token is based on a short sample. "
+            "Raise --max_steps to at least %s.",
+            summary["timed_steps"], trainer.time_steps, trainer.profile_steps + trainer.time_steps,
+        )
+    # DataParallel: n_gpu > 1 without a launcher means the step was spread over several GPUs
+    # while world_size stayed 1, so neither rate describes the single-GPU setup it looks like.
+    if trainer.args.n_gpu > 1:
+        logger.warning(
+            "Measured under DataParallel across %s GPUs (world_size=1). Set CUDA_VISIBLE_DEVICES "
+            "to a single GPU, or launch with accelerate, for a meaningful rate.",
+            trainer.args.n_gpu,
+        )
+    summary["n_gpu"] = trainer.args.n_gpu
+
+    if trainer.args.should_save:  # rank 0 only, so the ranks don't race on the same file
+        pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+        metrics_path = pathlib.Path(output_dir) / "training_flops_time.json"
+        with open(metrics_path, "w") as f:
+            json.dump(summary, f, indent=2)
+        logger.info("Wrote FLOPs/time metrics to %s", metrics_path)
+
+    logger.info(
+        "Per epoch: %.4e FLOPs (%.2f TFLOPs), %.1fs (%.2fh) over %s tokens",
+        summary["per_epoch_flops"], summary["per_epoch_flops"] / 1e12,
+        summary["per_epoch_time_seconds"], summary["per_epoch_time_seconds"] / 3600,
+        f"{total_epoch_tokens:,}",
+    )
 
 
 def main():
@@ -335,6 +513,15 @@ def main():
 
     train_batches = datasets.Dataset.load_from_disk(str(train_batches_path))
     val_batches = datasets.Dataset.load_from_disk(str(val_batches_path))
+
+    profiling = args.profile_steps > 0 or args.time_steps > 0
+    # --max_steps marks a run whose only purpose is collecting FLOPs/time. It stops mid-epoch,
+    # so epoch-based eval/checkpointing/early-stopping have nothing to act on.
+    profile_only = args.max_steps > 0
+    # Only paid for when profiling: this is a full pass over the training set.
+    total_epoch_tokens = count_epoch_tokens(train_batches) if profiling else 0
+    if profiling:
+        print(f"Total tokens per epoch: {total_epoch_tokens:,} across {len(train_batches)} batches")
 
     # Use Hydra to load model hyperparameters and keep tokenizer-derived fields runtime-bound
     conf_dir = pathlib.Path(__file__).parent / "conf"
@@ -422,11 +609,12 @@ def main():
         weight_decay=0.05,
         adam_beta2=0.95,
         # report_to="none",
-        report_to="wandb",
+        report_to="none" if profile_only else "wandb",
         max_grad_norm=args.max_grad_norm,
         run_name=args.hf_run_name,
         # run_name="motor_pretrain_mimic",
         num_train_epochs=args.n_epochs,
+        max_steps=args.max_steps,
         ddp_find_unused_parameters=(args.loss_type == "survivehr"),
 
         warmup_steps=1000,
@@ -434,8 +622,8 @@ def main():
         logging_strategy='steps',
         logging_steps=args.logging_steps,
 
-        save_strategy='epoch',
-        eval_strategy='epoch',
+        save_strategy='no' if profile_only else 'epoch',
+        eval_strategy='no' if profile_only else 'epoch',
         # evaluation_strategy='epoch',
 
         # prediction_loss_only=True,
@@ -443,32 +631,36 @@ def main():
         dataloader_num_workers=40,
 
         save_total_limit=10,
-        load_best_model_at_end=True,
+        load_best_model_at_end=not profile_only,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
     )
     print(f"CONFIRMATION: The actual per_device_train_batch_size is {trainer_config.per_device_train_batch_size}")
     print(f"CONFIRMATION: The actual gradient_accumulation_steps is {trainer_config.gradient_accumulation_steps}")
+    if profile_only:
+        print(f"PROFILE-ONLY MODE: stopping after {args.max_steps} steps, no eval/save/early-stopping")
 
-
-    if args.best_model_dir:
-        best_model_dir = pathlib.Path(args.best_model_dir)
-    else:
-        best_model_dir = pathlib.Path(output_dir) / "best_model"
-    # Same normalisation the Trainer applies to metric_for_best_model before looking it up.
-    best_metric_name = trainer_config.metric_for_best_model
-    if not best_metric_name.startswith("eval_"):
-        best_metric_name = f"eval_{best_metric_name}"
-    save_best_callback = SaveBestModelCallback(
-        best_model_dir,
-        tokenizer=tokenizer,
-        metric_name=best_metric_name,
-        greater_is_better=trainer_config.greater_is_better,
-    )
-    callbacks = [
-        CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001),
-        save_best_callback,
-    ]
+    callbacks = []
+    save_best_callback = None
+    if not profile_only:
+        if args.best_model_dir:
+            best_model_dir = pathlib.Path(args.best_model_dir)
+        else:
+            best_model_dir = pathlib.Path(output_dir) / "best_model"
+        # Same normalisation the Trainer applies to metric_for_best_model before looking it up.
+        best_metric_name = trainer_config.metric_for_best_model
+        if not best_metric_name.startswith("eval_"):
+            best_metric_name = f"eval_{best_metric_name}"
+        save_best_callback = SaveBestModelCallback(
+            best_model_dir,
+            tokenizer=tokenizer,
+            metric_name=best_metric_name,
+            greater_is_better=trainer_config.greater_is_better,
+        )
+        callbacks = [
+            CustomEarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=0.001),
+            save_best_callback,
+        ]
     if args.loss_type in ("survivehr", "icarefm"):
         callbacks.append(SurviveHRMetricsCallback())
 
@@ -480,20 +672,27 @@ def main():
         eval_dataset=val_batches,
         args=trainer_config,
         callbacks=callbacks,
+        profile_steps=args.profile_steps,
+        time_steps=args.time_steps,
     )
-    save_best_callback.trainer = trainer
+    if save_best_callback is not None:
+        save_best_callback.trainer = trainer
 
     train_result = trainer.train(resume_from_checkpoint=args.checkpoint_dir)
 
-    # load_best_model_at_end=True means trainer.model now holds the lowest-eval_loss weights,
-    # whether we stopped early or ran all n_epochs. Rewrite best_model from them so the final
-    # artifact is consistent with trainer_state.best_model_checkpoint.
-    save_best_callback.best_metric = trainer.state.best_metric
-    save_best_callback.save(trainer.state, reason="end of training")
-    logger.info(
-        "Training finished after %.2f/%s epochs (best checkpoint: %s). Best model -> %s",
-        trainer.state.epoch or 0.0, args.n_epochs, trainer.state.best_model_checkpoint, best_model_dir,
-    )
+    if save_best_callback is not None:
+        # load_best_model_at_end=True means trainer.model now holds the lowest-eval_loss weights,
+        # whether we stopped early or ran all n_epochs. Rewrite best_model from them so the final
+        # artifact is consistent with trainer_state.best_model_checkpoint.
+        save_best_callback.best_metric = trainer.state.best_metric
+        save_best_callback.save(trainer.state, reason="end of training")
+        logger.info(
+            "Training finished after %.2f/%s epochs (best checkpoint: %s). Best model -> %s",
+            trainer.state.epoch or 0.0, args.n_epochs, trainer.state.best_model_checkpoint, best_model_dir,
+        )
+
+    if profiling:
+        write_profiling_metrics(trainer, total_epoch_tokens, output_dir)
 
     trainer.log_metrics("train", train_result.metrics)
     trainer.save_metrics("train", train_result.metrics)

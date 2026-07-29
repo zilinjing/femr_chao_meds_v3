@@ -126,6 +126,15 @@ def create_arg_parser():
         default=None,
         help="Directory where labels/features/flops will be written. Defaults to --pretraining_data.",
     )
+    args.add_argument(
+        "--profile_flops",
+        dest="profile_flops",
+        choices=["yes", "no"],
+        default="no",
+        help="Run inference under the torch profiler to count FLOPs. The profiler inflates the "
+             "measured inference time, so run once with 'yes' for FLOPs and once with 'no' for "
+             "time; the two passes write separate metrics files.",
+    )
     return args
 
 
@@ -190,10 +199,14 @@ def main():
         # for label_name in labels:
         motor_features_name = get_model_name(label_name, args.model_name,args.observation_window)
         feature_output_path = features_path / f"{motor_features_name}.pkl"
-        training_metrics_file = flops_path / f"{motor_features_name}.json"
-        if feature_output_path.exists():
+        # One metrics file per measurement pass, so the timing pass doesn't overwrite the
+        # FLOPs pass's numbers. Features themselves are identical either way.
+        profile_flops = args.profile_flops == "yes"
+        metrics_kind = "flops" if profile_flops else "time"
+        training_metrics_file = flops_path / f"{motor_features_name}.{metrics_kind}.json"
+        if feature_output_path.exists() and training_metrics_file.exists():
             print(
-                f"The features for {label_name} already exist at {feature_output_path}, it will be skipped!"
+                f"The features and {metrics_kind} metrics for {label_name} already exist, it will be skipped!"
             )
             # continue
         else:
@@ -225,7 +238,7 @@ def main():
                 loss_type=args.loss_type,
                 use_ntp=args.use_ntp,
                 cache_path=args.cache_path,
-                total_flops=0
+                profile_flops=profile_flops,
             )
 
             with open(feature_output_path, 'wb') as f:
@@ -235,11 +248,12 @@ def main():
             # Save the training metrics to the output file
             with open(training_metrics_file, "w") as output_file:
                 training_metrics = {
+                    "profiled": profile_flops,
                     "preprocess_time": features["preprocess_time"],
                     "infer_time": features["infer_time"],
                     "total_flops": features["total_flops"],
                 }
-                json.dump(training_metrics, output_file)
+                json.dump(training_metrics, output_file, indent=2)
 
 if __name__ == "__main__":
     main()

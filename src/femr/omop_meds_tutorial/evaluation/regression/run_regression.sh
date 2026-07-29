@@ -34,6 +34,9 @@ show_help() {
 OMOP_MEDS_READER_ARG=""
 COHORT_BASE_DIR=""
 MIN_SUBJECTS_PER_BATCH="1"
+# Count inference FLOPs under the torch profiler. Off by default because the profiler
+# inflates the measured inference time; run once with yes, once with no.
+PROFILE_FLOPS=no
 
 # NEW: storage for task filters
 FILTER_TASKS=()
@@ -57,6 +60,7 @@ while [ $# -gt 0 ]; do
         --cache_path) CACHE_PATH="$2"; shift 2 ;;
         --main_split_path) MAIN_SPLIT_PATH="$2"; shift 2 ;;
         --use_ntp) USE_NTP="$2"; shift 2 ;;
+        --profile_flops) PROFILE_FLOPS="$2"; shift 2 ;;
         --cohort_dir) COHORT_BASE_DIR="$2"; shift 2 ;;
         --output_dir) OUTPUT_DIR="$2"; shift 2 ;;
         --tasks) TASK_LIST="$2"; shift 2 ;;   # <-- NEW
@@ -169,9 +173,13 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
 
     FEATURES_DIR="${OUTPUT_DIR}/${MODEL_NAME}/features"
     FEATURE_FILE="${FEATURES_DIR}/${motor_features_name}.pkl"
+    # The metrics file is per measurement pass, so a timing pass still runs when the FLOPs
+    # pass already produced the features.
+    if [ "$PROFILE_FLOPS" = "yes" ]; then METRICS_KIND=flops; else METRICS_KIND=time; fi
+    METRICS_FILE="${OUTPUT_DIR}/${MODEL_NAME}/flops/${motor_features_name}.${METRICS_KIND}.json"
 
-    if [[ -f "$FEATURE_FILE" ]]; then
-        echo "Found existing features, reusing: $FEATURE_FILE"
+    if [[ -f "$FEATURE_FILE" && -f "$METRICS_FILE" ]]; then
+        echo "Found existing features and ${METRICS_KIND} metrics, reusing: $FEATURE_FILE"
     else
         GENERATE_CMD="python -u \"$GEN_FEATURES_PY\" \
             --model_path \"$MODEL_PATH\" \
@@ -185,6 +193,7 @@ for TASK_DIR in "$COHORT_BASE_DIR"*/; do
             --ontology_path \"$ONTOLOGY_PATH\" \
             --output_root \"$OUTPUT_DIR\" \
             --use_ntp \"$USE_NTP\" \
+            --profile_flops \"$PROFILE_FLOPS\" \
             --cache_path \"$CACHE_PATH\" \
             --loss_type "labeled_subjects" \
             --task_type "regression" " 

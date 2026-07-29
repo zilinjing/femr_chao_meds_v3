@@ -12,6 +12,9 @@ OBSERVATION_WINDOW=""
 USE_LINEAR_INTERPOLATION=false
 TRUNCATION=365
 SKIPPED=0
+# Count inference FLOPs under the torch profiler. Off by default because the profiler
+# inflates the measured inference time; run once with yes, once with no.
+PROFILE_FLOPS=no
 
 # Function to display help
 show_help() {
@@ -113,6 +116,10 @@ while [ $# -gt 0 ]; do
             ;;
         --use_ntp)
             USE_NTP="$2"
+            shift 2
+            ;;
+        --profile_flops)
+            PROFILE_FLOPS="$2"
             shift 2
             ;;
         --classification_cohort)
@@ -242,9 +249,13 @@ for TASK_DIR in "$CLASS_COHORT"*/; do
     
     FEATURES_DIR="${OUTPUT_DIR}/${MODEL_NAME}/features"
     FEATURE_FILE="${FEATURES_DIR}/${motor_features_name}.pkl"
+    # The metrics file is per measurement pass, so a timing pass still runs when the FLOPs
+    # pass already produced the features.
+    if [ "$PROFILE_FLOPS" = "yes" ]; then METRICS_KIND=flops; else METRICS_KIND=time; fi
+    METRICS_FILE="${OUTPUT_DIR}/${MODEL_NAME}/flops/${motor_features_name}.${METRICS_KIND}.json"
 
-    if [[ -f "$FEATURE_FILE" ]]; then
-        echo "Found existing features, reusing: $FEATURE_FILE"
+    if [[ -f "$FEATURE_FILE" && -f "$METRICS_FILE" ]]; then
+        echo "Found existing features and ${METRICS_KIND} metrics, reusing: $FEATURE_FILE"
     else
         echo "Features not found, generating: $FEATURE_FILE"
         GENERATE_CMD="python -u -m femr.omop_meds_tutorial.evaluation.generate_features \
@@ -260,6 +271,7 @@ for TASK_DIR in "$CLASS_COHORT"*/; do
             --ontology_path \"$ONTOLOGY_PATH\" \
             --output_root \"$OUTPUT_DIR\" \
             --use_ntp \"$USE_NTP\" \
+            --profile_flops \"$PROFILE_FLOPS\" \
             --task_type \"binary\" \
             --loss_type \"labeled_subjects\""
 

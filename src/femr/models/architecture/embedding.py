@@ -1808,7 +1808,7 @@ def compute_features(
         ontology: Optional[femr.ontology.Ontology] = None,
         observation_window: Optional[int] = None,
         min_subjects_per_batch: int = 1,
-        total_flops: Optional[int] = None,
+        profile_flops: bool = False,
         loss_type: str = None,
         use_ntp: bool = False,
         cache_path: str = None,
@@ -1824,12 +1824,15 @@ def compute_features(
         device: Which type of compute to use
         ontology: A FEMR ontology object, which is necessary for models that use a hierarchical tokenizer
         observation_window: The observation window in which the features are extracted
-        total_flops: TotalFlops to record the total number of flops
+        profile_flops: Run each forward pass under the torch profiler to count FLOPs. The
+            profiler's per-batch overhead inflates "infer_time", so measure FLOPs and time in
+            two separate passes rather than trusting both from one run.
 
     Returns:
         A dictionary of numpy arrays, with three keys, "subject_ids", "feature_times" and "features"
          -  "subject_ids" and "feature_times" define the subject and time each feature refers to
          -  "features" provides the representations at each subject id and feature time
+        plus "preprocess_time", "infer_time" and "total_flops" (0 unless profile_flops).
     """
     task = femr.models.tasks.motor.LabeledSubjectTask(labels, observation_window)
 
@@ -1894,28 +1897,26 @@ def compute_features(
                 if device:
                     batch = to_device(batch, device)
 
-                if total_flops is not None:
-                    # Sync before timing for accurate wall-clock on GPU
-                    if use_cuda:
-                        torch.cuda.synchronize(device)
-                    t0 = time.perf_counter()
+                # Always timed; only profiled on request. Sync around the forward pass so
+                # async CUDA work lands inside the measured interval.
+                if use_cuda:
+                    torch.cuda.synchronize(device)
+                t0 = time.perf_counter()
 
+                if profile_flops:
                     with profile(activities=activities, with_flops=True) as prof:
                         _, result = model(**batch, return_reprs=True)
-
-                    if use_cuda:
-                        torch.cuda.synchronize(device)
-                    t1 = time.perf_counter()
-                    batch_times_wall.append(t1 - t0)
-
                     # Sum FLOPs from all profiled events
-                    batch_flops = sum(
+                    batch_flops_list.append(sum(
                         evt.flops for evt in prof.key_averages()
                         if evt.flops is not None and evt.flops > 0
-                    )
-                    batch_flops_list.append(batch_flops)
+                    ))
                 else:
                     _, result = model(**batch, return_reprs=True)
+
+                if use_cuda:
+                    torch.cuda.synchronize(device)
+                batch_times_wall.append(time.perf_counter() - t0)
 
                 all_subject_ids.append(result["subject_ids"].to(cpu_device, non_blocking=True))
                 all_feature_times.append(result["timestamps"].to(cpu_device, non_blocking=True))
