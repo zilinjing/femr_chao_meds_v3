@@ -29,7 +29,7 @@ cd "$(dirname "$(readlink -f "$0")")"
 # MEDS_READER=/shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
 # HF_CACHE=/shared/share_mala/zj2398/huggingface/datasets
 
-MODEL_DIR=/data2/processed_datasets/zj2398/femr/mimic/icarefm            # differs
+MODEL_DIR=/data2/processed_datasets/zj2398/femr/cumc/survivehr         # differs
 LOSS_TYPE=survivehr                                # differs
 RUN_NAME=mimic_survivehr_transformer_value_1000_test    # differs
 
@@ -40,7 +40,7 @@ HF_CACHE=/data2/huggingface/zj2398
 #   --pretraining_data "$MODEL_DIR" \
 #   --ontology_path "$MODEL_DIR/ontology.pkl" \
 #   --meds_reader "$MEDS_READER" \
-#   --num_threads 32 \
+#   --num_threads 64 \
 #   --tokens_per_batch 16384 \
 #   --value_count_threshold 1000 \
 #   --model transformer \
@@ -88,9 +88,9 @@ python pretrain.py \
   --n_epochs 20 \
   --survivehr_time_scale_days 1.0 \
   --hf_run_name mimic_survivehr_transformer_profile \
-  --profile_steps 500 \
-  --time_steps 500 \
-  --max_steps 1000
+  --profile_steps 1000 \
+  --time_steps 1000 \
+  --max_steps 2000
 
 # --- Mamba variant ------------------------------------------------------------
 # Recipe behind /user/zj2398/cache/survivehr/mamba_2e-4. Different learning rate and

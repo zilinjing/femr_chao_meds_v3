@@ -75,9 +75,9 @@ python pretrain.py \
   --max_grad_norm 1.0 \
   --n_epochs 20 \
   --hf_run_name mimic_icarefm_transformer_profile \
-  --profile_steps 500 \
-  --time_steps 500 \
-  --max_steps 1000
+  --profile_steps 1000 \
+  --time_steps 1000 \
+  --max_steps 2000
 
 # --- Mamba variant ------------------------------------------------------------
 # Recipe behind /user/zj2398/cache/icarefm/mamba/best_45080, which the eval scripts point at.
