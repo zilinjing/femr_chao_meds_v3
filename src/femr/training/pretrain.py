@@ -13,7 +13,7 @@ import femr.models.tokenizer
 import femr.models.processor
 from hydra import initialize_config_dir, compose
 from omegaconf import OmegaConf
-from femr.evaluation.generate_labels import create_omop_meds_tutorial_arg_parser
+from femr.evaluation.common.generate_labels import create_omop_meds_tutorial_arg_parser
 import torch.nn as nn
 from torch.profiler import ProfilerActivity, profile
 import wandb

@@ -1,0 +1,16 @@
+EVAL="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"  # femr/evaluation
+bash "$EVAL/script/run.sh" \
+  --meds_reader        /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader  \
+  --num_proc           24 \
+  --model_path         /user/zj2398/cache/icarefm/mamba/best_45080 \
+  --model_name         icare_mamba \
+  --tokens_per_batch   65536 \
+  --device             cuda:0 \
+  --use_ntp            yes \
+  --cohort_type        outcome \
+  --cache_path         /shared/share_mala/zj2398/huggingface/datasets \
+  --min_subjects_per_batch 8 \
+  --ontology_path       /user/zj2398/cache/survivehr/ontology.pkl \
+  --main_split_path     /user/zj2398/cache/survivehr/main_split.csv  \
+  --output_dir   /shared/share_mala/zj2398/mimic/task/patient_outcome_task  \
+  --classification_cohort /shared/share_mala/zj2398/mimic/task/patient_outcome_task/cohort/ 

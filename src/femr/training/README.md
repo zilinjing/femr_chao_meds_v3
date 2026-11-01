@@ -252,7 +252,7 @@ After pretraining your model, you can evaluate it on downstream tasks using the 
 
 Evaluates binary classification tasks (e.g., predicting patient outcomes).
 
-**Script:** `evaluation/run.sh`
+**Script:** `src/femr/evaluation/script/run.sh`
 
 **Example Usage:**
 
@@ -302,7 +302,7 @@ bash run.sh \
 
 Evaluates phenotype classification and survival analysis (time-to-event) tasks.
 
-**Script:** `evaluation/run.sh`
+**Script:** `src/femr/evaluation/script/run.sh`
 
 **Example Usage**
 
@@ -379,7 +379,7 @@ bash run.sh \
 
 Evaluates continuous value prediction tasks (e.g., predicting lab values).
 
-**Script:** `evaluation/regression/run_regression.sh`
+**Script:** `src/femr/evaluation/regression/script/run_regression.sh`
 
 **Example Usage:**
 <!-- export CUDA_VISIBLE_DEVICES=1 -->
