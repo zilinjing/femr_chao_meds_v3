@@ -4,8 +4,8 @@ This note documents the current SurvivEHR-style causal objective in `femr_chao_m
 
 The active implementation is now integrated into the standard FEMR pretraining flow:
 
-- `src/femr/omop_meds_tutorial/prepare.py`
-- `src/femr/omop_meds_tutorial/pretrain.py`
+- `src/femr/training/prepare.py`
+- `src/femr/training/pretrain.py`
 - `src/femr/models/processor.py`
 - `src/femr/models/architecture/embedding.py`
 
@@ -95,7 +95,7 @@ For `SurvivEHRTask`, it also passes:
 
 This lets the backbone input remain the usual CLMBR hierarchical embedding-bag representation, while the task label remains the raw original event-code ID.
 
-### `src/femr/omop_meds_tutorial/prepare.py`
+### `src/femr/training/prepare.py`
 
 `prepare.py` now accepts:
 
@@ -110,7 +110,7 @@ For `survivehr`, it:
 - saves `survivehr_task.pkl`;
 - writes the usual `train_batches` / `val_batches` for transformer, or `train_batches_mamba` / `val_batches_mamba` for Mamba.
 
-### `src/femr/omop_meds_tutorial/pretrain.py`
+### `src/femr/training/pretrain.py`
 
 `pretrain.py` now accepts:
 
@@ -184,8 +184,8 @@ Those files reference each other and can still describe or run the older standal
 
 The old separate tutorial entrypoints are no longer the intended path:
 
-- `src/femr/omop_meds_tutorial/prepare_survivehr_causal.py`
-- `src/femr/omop_meds_tutorial/pretrain_survivehr_causal.py`
+- `src/femr/training/prepare_survivehr_causal.py`
+- `src/femr/training/pretrain_survivehr_causal.py`
 - older task file `src/femr/models/tasks/survivehr_causal.py`
 
 Use standard `prepare.py` and `pretrain.py` instead.
@@ -243,7 +243,7 @@ Transformer batches:
 
 ```bash
 PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
-python -m femr.omop_meds_tutorial.prepare \
+python -m femr.training.prepare \
   --pretraining_data /path/to/pretraining_data_survivehr \
   --ontology_path /path/to/pretraining_data_survivehr/ontology.pkl \
   --meds_reader /path/to/meds_reader \
@@ -261,7 +261,7 @@ Mamba batches:
 
 ```bash
 PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
-python -m femr.omop_meds_tutorial.prepare \
+python -m femr.training.prepare \
   --pretraining_data /path/to/pretraining_data_survivehr \
   --ontology_path /path/to/pretraining_data_survivehr/ontology.pkl \
   --meds_reader /path/to/meds_reader \
@@ -282,7 +282,7 @@ Transformer:
 
 ```bash
 PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
-python -m femr.omop_meds_tutorial.pretrain \
+python -m femr.training.pretrain \
   --pretraining_data /path/to/pretraining_data_survivehr \
   --output_dir /path/to/output_survivehr_transformer \
   --model transformer \
@@ -299,7 +299,7 @@ Mamba:
 
 ```bash
 PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
-python -m femr.omop_meds_tutorial.pretrain \
+python -m femr.training.pretrain \
   --pretraining_data /path/to/pretraining_data_survivehr \
   --output_dir /path/to/output_survivehr_mamba \
   --model mamba \

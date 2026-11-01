@@ -19,12 +19,12 @@
   - Uses a per-variable threshold embedding `u_k`, direction embedding, variable-specific two-layer MLP with SiLU, and sigmoid-hazard BCE through `binary_cross_entropy_with_logits`.
   - Added the `loss_type == "icarefm"` task-head branch.
 
-- `omop_meds_tutorial/prepare.py`
+- `training/prepare.py`
   - Added `icarefm` as a supported loss type.
   - Uses `CLMBRTokenizer` for ICareFM, consistent with the plan and the existing SurviveHR/CLMBR path.
   - Serializes `icarefm_task.pkl`.
 
-- `omop_meds_tutorial/pretrain.py`
+- `training/pretrain.py`
   - Added `icarefm` as a supported loss type.
   - Loads `CLMBRTokenizer` for ICareFM.
   - Enables `ddp_find_unused_parameters` for ICareFM because the per-variable heads are sparsely used by each batch.
@@ -82,7 +82,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
 PYTHONPATH=/user/zj2398/femr_chao_meds_v3/src \
   /user/zj2398/.conda/envs/tte/bin/python -s -m py_compile \
   models/tasks/icarefm_task.py models/architecture/embedding.py \
-  omop_meds_tutorial/prepare.py omop_meds_tutorial/pretrain.py
+  training/prepare.py training/pretrain.py
 ```
 
 - Existing adjacent test did not collect:

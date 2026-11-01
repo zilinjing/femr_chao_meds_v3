@@ -246,8 +246,8 @@ Track metrics:
 Minimal files to touch when implementing:
 
 - `femr/models/tasks/icarefm_task.py`: new task, target fitting, sparse future evidence, dynamic cleanup.
-- `femr/omop_meds_tutorial/prepare.py`: add `loss_type == "icarefm"` and task serialization.
-- `femr/omop_meds_tutorial/pretrain.py`: add CLI choice and load task normally.
+- `femr/training/prepare.py`: add `loss_type == "icarefm"` and task serialization.
+- `femr/training/pretrain.py`: add CLI choice and load task normally.
 - `femr/models/architecture/embedding.py`: add `ICareFMTaskHead` branch for `loss_type == "icarefm"`.
 - `femr/models/config.py`: no change expected unless the task config needs stricter structured fields.
 - `tests/models/`: add small deterministic tests for labels, dynamic sampling, and one forward pass.
