@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import abc
 import collections
 import datetime
 import functools
@@ -22,42 +21,7 @@ import femr.stat_utils
 import random
 import logging
 
-class Task(abc.ABC):
-    def __init__(self):
-        super().__init__()
-
-    @abc.abstractmethod
-    def get_task_config(self) -> femr.models.config.FEMRTaskConfig: ...
-
-    @abc.abstractmethod
-    def start_batch(self) -> None: ...
-
-    @abc.abstractmethod
-    def start_subject(self, subject: meds_reader.Subject, ontology: Optional[femr.ontology.Ontology]) -> None: ...
-
-    @abc.abstractmethod
-    def add_subject_labels(self, subject_label_offsets: List[int]) -> None: ...
-
-    @abc.abstractmethod
-    def needs_exact(self) -> bool: ...
-
-    @abc.abstractmethod
-    def get_sampled_labels(self, length: int) -> int:
-        return length
-
-    @abc.abstractmethod
-    def add_event(
-            self,
-            current_date: datetime.datetime,
-            next_date: Optional[datetime.datetime],
-            next_features: Optional[Sequence[int]],
-    ) -> int: ...
-
-    @abc.abstractmethod
-    def get_batch_data(self) -> Mapping[str, np.ndarray]: ...
-
-    def cleanup(self, batch: Mapping[str, torch.Tensor]) -> Mapping[str, torch.Tensor]:
-        return batch
+from femr.models.tasks.ntp import Task
 
 
 class MTPPValue_SurvivalCalculator:
