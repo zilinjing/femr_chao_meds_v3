@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."  # prepare.py/pretrain.py live one level up
 
 # ---- config (edit if you like) ----
 # LOG_DIR="${LOG_DIR:-./logs}"
@@ -13,10 +14,10 @@ set -euo pipefail
 # echo "  train   -> $TRAIN_LOG"
 # echo
 
-# TIME_BINS=$1
-# PRETRAINING_DATA=$3 
-# ONTOLOGY_PATH=$4
-
+TIME_BINS=$1
+VALUE_BINS=$2
+PRETRAINING_DATA=$3 
+ONTOLOGY_PATH=$4
 
 # ---- job 1: data prep (background) ----
 # python prepare.py \
@@ -31,9 +32,10 @@ set -euo pipefail
 #   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader
 
 python prepare.py \
-  --pretraining_data /data/models/zj2398/femr/mimic_motor_birth \
-  --ontology_path  /data/models/zj2398/femr/mimic_motor_birth/ontology.pkl \
+  --pretraining_data $PRETRAINING_DATA \
+  --ontology_path  $ONTOLOGY_PATH \
   --loss_type motor \
+  --num_final_tasks 6100 \
   --num_threads 32 \
   --hf_cache_path /data2/huggingface/zj2398 \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader
@@ -58,19 +60,20 @@ python prepare.py \
 #   --loss_type mtpp_shared
 
 # accelerate launch \
-#   --num_processes 4 \
-  python pretrain.py \
-  --pretraining_data /data/models/zj2398/femr/mimic_motor_birth \
+#   --num_processes 3 \
+
+python pretrain.py \
+  --pretraining_data $PRETRAINING_DATA \
   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
   --per_device_train_batch_size 1 \
-  --output_dir /data/models/zj2398/femr/mimic_motor_birth/output/ \
+  --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer \
   --model transformer \
-  --n_epochs 10 \
-  --hf_run_name mimic_transformer_motor \
+  --n_epochs 2 \
+  --hf_run_name mimic_transformer_motor_6100_test \
   --loss_type motor
 
 
-#bash run_mimic_motor.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/motor /data2/processed_datasets/zj2398/femr/mimic/motor/ontology.pkl
+#bash mimic/run_mimic_motor.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/motor /data2/processed_datasets/zj2398/femr/mimic/motor/ontology.pkl
 
 # python pretrain.py \
 #   --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/motor  \

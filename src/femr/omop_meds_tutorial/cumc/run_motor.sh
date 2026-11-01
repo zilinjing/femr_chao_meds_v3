@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."  # prepare.py/pretrain.py live one level up
 
 # ---- config (edit if you like) ----
 # LOG_DIR="${LOG_DIR:-./logs}"

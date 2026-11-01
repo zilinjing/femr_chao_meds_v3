@@ -6,11 +6,11 @@
 # losses" design.  It reuses ORA's task definition (mtpp_task.pkl) and batches unchanged, so
 # the only difference between the two arms is the head.
 #
-# Usage:   bash run_mimic_mtpp_factorized.sh
-# Resume:  bash run_mimic_mtpp_factorized.sh   (prepare skips finished artifacts; training
+# Usage:   bash mimic/run_mimic_mtpp_factorized.sh
+# Resume:  bash mimic/run_mimic_mtpp_factorized.sh   (prepare skips finished artifacts; training
 #          picks up with CHECKPOINT_DIR=<path> if you pass one)
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$(readlink -f "$0")")/.."  # prepare.py/pretrain.py live one level up
 
 # ---------------------------------------------------------------- configuration
 # Activate the `tte` environment unless one is already active.

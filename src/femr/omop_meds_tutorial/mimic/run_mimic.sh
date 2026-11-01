@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."  # prepare.py/pretrain.py live one level up
 
 # ---- config (edit if you like) ----
 # LOG_DIR="${LOG_DIR:-./logs}"
@@ -58,4 +59,4 @@ accelerate launch \
   --hf_run_name mimic_transformer_mtpp_6100_T_8_V_10 \
   --loss_type mtpp_shared
 
-#bash run_mimic.sh 16 5
+#bash mimic/run_mimic.sh 16 5

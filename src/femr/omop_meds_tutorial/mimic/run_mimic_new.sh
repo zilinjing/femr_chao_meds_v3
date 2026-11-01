@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."  # prepare.py/pretrain.py live one level up
 
 # ---- config (edit if you like) ----
 # LOG_DIR="${LOG_DIR:-./logs}"
@@ -33,7 +34,9 @@ ONTOLOGY_PATH=$4
 python prepare.py \
   --pretraining_data $PRETRAINING_DATA \
   --ontology_path  $ONTOLOGY_PATH \
-  --loss_type motor \
+  --time_bins $TIME_BINS \
+  --value_bins $VALUE_BINS \
+  --loss_type mtpp_value \
   --num_final_tasks 6100 \
   --num_threads 32 \
   --hf_cache_path /data2/huggingface/zj2398 \
@@ -47,41 +50,31 @@ python prepare.py \
 # multi-gpu pretraining
 # export CUDA_VISIBLE_DEVICES=1
 
-# accelerate launch \
-#   --num_processes 4 \
-#   pretrain.py \
-#   --pretraining_data /user/zj2398/cache/mtpp_all_shared_6100_bin_5 \
-#   --meds_reader /shared/share_mala/zj2398/mimic/data/meds_v0.6_reader \
-#   --per_device_train_batch_size 1 \
-#   --output_dir /user/zj2398/cache/mtpp_all_shared_6100_bin_5/mamba \
-#   --model mamba \
-#   --hf_run_name mimic_mamba_mtpp_shared_6100_bin_5 \
-#   --loss_type mtpp_shared
+accelerate launch \
+  --num_processes 4 \
+  pretrain.py \
+  --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5 \
+  --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
+  --per_device_train_batch_size 1 \
+  --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/transformer \
+  --model transformer \
+  --hf_run_name mimic_transformer_mtpp_value_only_6100_T_8_V_5 \
+  --loss_type mtpp_value
 
 # accelerate launch \
 #   --num_processes 3 \
 
-python pretrain.py \
-  --pretraining_data $PRETRAINING_DATA \
-  --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
-  --per_device_train_batch_size 1 \
-  --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer \
-  --model transformer \
-  --n_epochs 2 \
-  --hf_run_name mimic_transformer_motor_6100_test \
-  --loss_type motor
-
-
-#bash run_mimic_motor.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/motor /data2/processed_datasets/zj2398/femr/mimic/motor/ontology.pkl
-
 # python pretrain.py \
-#   --pretraining_data /data2/processed_datasets/zj2398/femr/mimic/motor  \
+#   --pretraining_data $PRETRAINING_DATA \
 #   --meds_reader /data/raw_data/mimic/files/mimiciv/meds_v0.6/3.1/MEDS_cohort-reader \
 #   --per_device_train_batch_size 1 \
-#   --output_dir /data2/processed_datasets/zj2398/femr/mimic/motor/transformer \
+#   --output_dir /data2/processed_datasets/zj2398/femr/mimic/mtpp_T_8_V_5/transformer \
 #   --model transformer \
-#   --n_epochs 1 \
-#   --hf_run_name mimic_transformer_motor_6100_test \
-#   --loss_type motor
+#   --n_epochs 2 \
+#   --hf_run_name mimic_transformer_mtpp_6100_T_${TIME_BINS}_V_${VALUE_BINS}_test \
+#   --loss_type mtpp_shared 
 
-#   --max_steps 450 \
+
+# bash mimic/run_mimic_new.sh 8 5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5 /data2/processed_datasets/zj2398/femr/mimic/mtpp_value_T_8_V_5/ontology.pkl
+
+
