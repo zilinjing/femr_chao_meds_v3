@@ -6,7 +6,6 @@ import sys
 import time
 import json
 import copy
-import femr.models.architecture.transformer
 import femr.models.architecture.embedding
 import pickle
 import datasets
