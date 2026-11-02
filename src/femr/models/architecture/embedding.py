@@ -1099,11 +1099,12 @@ class MTPPSharedTaskHead(nn.Module):
             L_num = torch.tensor(0.0, device=features.device)
             L_num_event = torch.tensor(0.0, device=features.device)
             L_num_cens  = torch.tensor(0.0, device=features.device)
+            L_num_time_only = torch.tensor(0.0, device=features.device)
 
+            # Sum probabilities over value bins: [pred_points, time_bins, numerical_tasks]
+            time_only_probs = torch.sum(numerical_probs, dim=2)
 
             if torch.any(time_censor_in_bin):
-                # Sum probabilities over value bins: [pred_points, time_bins, numerical_tasks]
-                time_only_probs = torch.sum(numerical_probs, dim=2)
                 cdf = torch.cumsum(time_only_probs, dim=1)
                 integrated_logits = torch.cat([torch.ones_like(time_only_probs[:, :1, :]), 1.0 - cdf[:, :-1, :]], dim=1)
                 integrated_logits_stable = torch.clamp(integrated_logits, min=eps, max=1.0-eps)
@@ -1143,6 +1144,18 @@ class MTPPSharedTaskHead(nn.Module):
                     numerical_loss += L_num_event
                     total_num_count += event_count
             
+            # Case 3: Event without a value (value-less occurrence of a numerical code):
+            # predict time only, i.e. the probability of the time bin summed over value bins.
+            time_only_event = time_event_in_bin & ~value_event_in_bin.any(dim=1, keepdim=True)
+            if torch.any(time_only_event):
+                L_num_time_only = -torch.sum(torch.where(
+                    time_only_event,
+                    torch.log(time_only_probs.clamp_min(eps)),
+                    torch.zeros_like(time_only_probs),
+                ))
+                numerical_loss += L_num_time_only
+                total_num_count += torch.sum(time_only_event)
+
             # ne  = event_count.float()
             # nc  = censored_count.float()
             # den = ne + nc
@@ -1165,6 +1178,7 @@ class MTPPSharedTaskHead(nn.Module):
                     "L_non_num":       L_non.detach(),
                     "L_num_event":   L_num_event.detach(),
                     "L_num_censor":  L_num_cens.detach(),
+                    "L_num_time_only": L_num_time_only.detach(),
                 }
                 result["value_dependent_logits"] = numerical_probs
         else:

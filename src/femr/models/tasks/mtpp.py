@@ -99,8 +99,22 @@ def _prefit_motor_map(
     # Create separate value samplers for numerical tasks
     task_value_stats = [femr.stat_utils.ReservoirSampler(100_000) for _ in range(len(tasks))]
     task_set = set(tasks)
+    # Raw number of numeric-only events with a finite value per task (same rule as ICareFM/SurvivEHR).
+    # The value samples above are taken at label positions, so one raw value can be counted many times;
+    # the numeric-task threshold uses this raw count instead.
+    task_index = {task: i for i, task in enumerate(tasks)}
+    task_raw_value_counts = np.zeros(len(tasks), dtype=np.int64)
 
     for subject in subjects:
+        for event in subject.events:
+            i = task_index.get(event.code)
+            if i is not None and event.numeric_value is not None and event.text_value is None:
+                try:
+                    if np.isfinite(float(event.numeric_value)):
+                        task_raw_value_counts[i] += 1
+                except (TypeError, ValueError):
+                    pass
+
         calculator = MTPP_SurvivalCalculator(ontology, subject, task_set)
         birth = femr.pat_utils.get_subject_birthdate(subject)
 
@@ -141,11 +155,11 @@ def _prefit_motor_map(
     
     
     print(f"prefit_motor_map is done")
-    return (task_event_times, task_time_stats, task_value_stats)
+    return (task_event_times, task_time_stats, task_value_stats, task_raw_value_counts)
 
 
 def _prefit_motor_agg(first: Any, second: Any) -> Any:
-    # first/second is (task_event_times, task_time_stats, task_value_stats)
+    # first/second is (task_event_times, task_time_stats, task_value_stats, task_raw_value_counts)
     # for task_event_times, we combine each task's ReservoirSampler separately
     # for task_time_stats, we add the number of events/censoring times, and combine the two groups of elements
     for a, b in zip(first[1], second[1]):
@@ -158,6 +172,7 @@ def _prefit_motor_agg(first: Any, second: Any) -> Any:
     # Combine each task's value stats separately
     for i in range(len(first[2])):
         first[2][i].combine(second[2][i])
+    first[3] += second[3]
     return first
 
 def keep_unique_bins(value_samples, num_bins):
@@ -198,7 +213,7 @@ class MTPP_Task(Task):
         print(f"Using {num_bins} time bins and {num_value_bins} value bins")
         
         # Apply parallel processing - ORDER IS PRESERVED by index
-        task_length_samples, stats, task_value_samples = functools.reduce(
+        task_length_samples, stats, task_value_samples, task_raw_value_counts = functools.reduce(
             _prefit_motor_agg, db.map(functools.partial(_prefit_motor_map, tasks=tasks, ontology=tokenizer.ontology))
         )
 
@@ -215,11 +230,12 @@ class MTPP_Task(Task):
                     f"censored={task_stats[0]}, events={task_stats[1]}, mean_time={task_stats[2].mean()}")
                 continue
 
-            value_sample_count = len(task_value_samples[i].samples)
-            
+            # Raw numeric-only value count (not the label-position sample count).
+            value_sample_count = int(task_raw_value_counts[i])
+
             if value_sample_count > 0:
                 # Numerical task - stricter filtering
-                if frac_events < 1 / 1000 or value_sample_count < value_count_threshold:
+                if frac_events < 1 / 1000 or value_sample_count < value_count_threshold or len(task_value_samples[i].samples) == 0:
                     print(f"Filtered out numerical task {task}: frac_events={frac_events}, "
                         f"value_count={value_sample_count}")
                     continue
@@ -479,11 +495,12 @@ class MTPP_Task(Task):
                 self.per_subject_time_sparse["time"].append(seconds)
                 self.per_subject_time_sparse["indices"].append(j)
             
-            # Handle numerical tasks  
-            if value is not None and event_name in self.numerical_task_to_index_map:
+            # Handle numerical tasks: record every next occurrence. A value-less occurrence gets
+            # value NaN, so it is a time-only event (the loss sums over value bins), not a censoring.
+            if event_name in self.numerical_task_to_index_map:
                 numerical_j = self.numerical_task_to_index_map[event_name]
                 self.per_subject_value_sparse["time"].append(seconds)
-                self.per_subject_value_sparse["value"].append(value)
+                self.per_subject_value_sparse["value"].append(float("nan") if value is None else value)
                 self.per_subject_value_sparse["indices"].append(numerical_j)
 
         self.per_subject_time_sparse["indptr"].append(len(self.per_subject_time_sparse["time"]))
@@ -727,14 +744,10 @@ class MTPP_Task(Task):
         # print(values_numerical)
         # print(time_numerical.shape)
         # print(values_numerical.shape)
-        match = ((time_numerical != 0) == (~torch.isnan(values_numerical))).all()
-        if not match:
-            print(torch.sum(time_numerical != 0))
-            print(torch.sum(~torch.isnan(values_numerical)))
-            print(time_numerical.shape)
-            print(values_numerical.shape)
-        assert ((time_numerical != 0) == (~torch.isnan(values_numerical))).all(), f"time_numerical != 0 = {time_numerical != 0}, ~torch.isnan(values_numerical) = {~torch.isnan(values_numerical)}"
+        # An occurrence may have no value (NaN): it is still an event, with no value bin.
+        # A value without an occurrence time must not happen.
         has_future_event = (time_numerical != 0)
+        assert not (~torch.isnan(values_numerical) & ~has_future_event).any(), "value without an event time"
         
         # Convert time_bins to torch tensor for vectorized operations
         time_bins_tensor = torch.from_numpy(self.numerical_time_bins).to(device=device, dtype=time_numerical.dtype) # [num_tasks, num_bins+1 9]
