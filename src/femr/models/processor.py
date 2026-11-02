@@ -101,12 +101,9 @@ class BatchCreator:
         self.offsets = []
         self.subject_lengths = []
 
-        if isinstance(self.tokenizer, femr.models.tokenizer.FlatTokenizer):
-            self.tokens = []
-        elif isinstance(self.tokenizer, (femr.models.tokenizer.HierarchicalTokenizer,femr.models.tokenizer.CLMBRTokenizer)):
-            self.hierarchical_tokens = []
-            self.hierarchical_weights = []
-            self.token_indices = [0]
+        self.hierarchical_tokens = []
+        self.hierarchical_weights = []
+        self.token_indices = [0]
 
         self.valid_tokens = []
 
@@ -151,9 +148,6 @@ class BatchCreator:
 
         # The timestamps at each index for the subject
         per_subject_timestamps = []
-
-        # For a regular tokenizer, we just have tokens
-        per_subject_tokens = []
 
         # For a hierarchical tokenizer, we have a more complex setup
         # These are designed to match the inputs required for an EmbeddingBag.
@@ -245,14 +239,10 @@ class BatchCreator:
                     for _ in range(num_added):
                         per_subject_label_indices.append(len(per_subject_ages) - 1)
 
-            if isinstance(self.tokenizer, femr.models.tokenizer.FlatTokenizer):
-                assert len(features) == 1
-                per_subject_tokens.append(features[0])
-            elif isinstance(self.tokenizer, (femr.models.tokenizer.HierarchicalTokenizer,femr.models.tokenizer.CLMBRTokenizer)):
-                assert weights is not None
-                per_subject_hierarchical_tokens.extend(features)
-                per_subject_hierarchical_weights.extend(weights)
-                per_subject_token_indices.append(len(per_subject_hierarchical_tokens)) 
+            assert weights is not None
+            per_subject_hierarchical_tokens.extend(features)
+            per_subject_hierarchical_weights.extend(weights)
+            per_subject_token_indices.append(len(per_subject_hierarchical_tokens))
             # Time Data updates, add age in days
             per_subject_ages.append((event.time - birth) / datetime.timedelta(days=1))
 
@@ -300,44 +290,40 @@ class BatchCreator:
         self.time_data[start_index] = per_subject_time_data[0]
         self.timestamps[start_index] = per_subject_timestamps[0]
 
-        if isinstance(self.tokenizer, femr.models.tokenizer.FlatTokenizer): #not self.tokenizer.is_hierarchical:
-            # Easy for simple tokenizer
-            self.tokens.extend(per_subject_tokens[offset : offset + length_to_add])
-        elif isinstance(self.tokenizer, (femr.models.tokenizer.HierarchicalTokenizer,femr.models.tokenizer.CLMBRTokenizer)):
-            # Hierarchical tokenizer is more complex since we have to shift the indices as well
-            # Remember, these arrays are all designed for PyTorch EmbeddingBag
+        # The hierarchical tokens have to be shifted as well
+        # Remember, these arrays are all designed for PyTorch EmbeddingBag
 
-            # We need to get the start and end at a particular offset
-            assert offset < len(per_subject_token_indices), f'Got it {len(per_subject_token_indices)} {subject.subject_id} {offset} {max_length}'
+        # We need to get the start and end at a particular offset
+        assert offset < len(per_subject_token_indices), f'Got it {len(per_subject_token_indices)} {subject.subject_id} {offset} {max_length}'
 
-            if offset == 0:
-                actual_offset = 0
-                actual_length = length_to_add
-            else:    
-                actual_offset = offset + 1
-                actual_length = length_to_add - 1
+        if offset == 0:
+            actual_offset = 0
+            actual_length = length_to_add
+        else:
+            actual_offset = offset + 1
+            actual_length = length_to_add - 1
 
-                birth_start = per_subject_token_indices[0]
-                birth_end = per_subject_token_indices[1]
-
-                # We need to offset the token indices to account for the existing tokens
-                self.token_indices.append(len(self.hierarchical_tokens) + birth_end - birth_start)
-                self.hierarchical_tokens.extend(per_subject_hierarchical_tokens[birth_start:birth_end])
-                self.hierarchical_weights.extend(per_subject_hierarchical_weights[birth_start:birth_end])
-            
-            internal_start = per_subject_token_indices[actual_offset]
-            internal_end = per_subject_token_indices[actual_offset + actual_length]
+            birth_start = per_subject_token_indices[0]
+            birth_end = per_subject_token_indices[1]
 
             # We need to offset the token indices to account for the existing tokens
-            self.token_indices.extend(
-                [
-                    len(self.hierarchical_tokens) - internal_start + value
-                    for value in per_subject_token_indices[actual_offset + 1 : actual_offset + actual_length + 1]
-                ]
-            )
+            self.token_indices.append(len(self.hierarchical_tokens) + birth_end - birth_start)
+            self.hierarchical_tokens.extend(per_subject_hierarchical_tokens[birth_start:birth_end])
+            self.hierarchical_weights.extend(per_subject_hierarchical_weights[birth_start:birth_end])
 
-            self.hierarchical_tokens.extend(per_subject_hierarchical_tokens[internal_start:internal_end])
-            self.hierarchical_weights.extend(per_subject_hierarchical_weights[internal_start:internal_end])
+        internal_start = per_subject_token_indices[actual_offset]
+        internal_end = per_subject_token_indices[actual_offset + actual_length]
+
+        # We need to offset the token indices to account for the existing tokens
+        self.token_indices.extend(
+            [
+                len(self.hierarchical_tokens) - internal_start + value
+                for value in per_subject_token_indices[actual_offset + 1 : actual_offset + actual_length + 1]
+            ]
+        )
+
+        self.hierarchical_tokens.extend(per_subject_hierarchical_tokens[internal_start:internal_end])
+        self.hierarchical_weights.extend(per_subject_hierarchical_weights[internal_start:internal_end])
 
         # The label indices are also a bit tricky as they have to be offset accordingly.
         # We also need to collect good labels that should be sent to the final numpy arrays.
@@ -375,14 +361,10 @@ class BatchCreator:
             "label_indices": np.array(self.label_indices, dtype=np.int32),
         }
 
-        if isinstance(self.tokenizer, femr.models.tokenizer.FlatTokenizer): #not self.tokenizer.is_hierarchical:
-            # For a single tokenizer, these are simple the token indices
-            transformer["tokens"] = np.array(self.tokens, dtype=token_dtype)
-        elif isinstance(self.tokenizer, (femr.models.tokenizer.HierarchicalTokenizer,femr.models.tokenizer.CLMBRTokenizer)):
-            # See PyTorch's EmbeddingBag for what these numpy arrays mean.
-            transformer["hierarchical_tokens"] = np.array(self.hierarchical_tokens, dtype=token_dtype)
-            transformer["hierarchical_weights"] = np.array(self.hierarchical_weights, dtype=np.float16)
-            transformer["token_indices"] = np.array(self.token_indices, dtype=np.int32)
+        # See PyTorch's EmbeddingBag for what these numpy arrays mean.
+        transformer["hierarchical_tokens"] = np.array(self.hierarchical_tokens, dtype=token_dtype)
+        transformer["hierarchical_weights"] = np.array(self.hierarchical_weights, dtype=np.float16)
+        transformer["token_indices"] = np.array(self.token_indices, dtype=np.int32)
 
         # Some general metadata
         final = {

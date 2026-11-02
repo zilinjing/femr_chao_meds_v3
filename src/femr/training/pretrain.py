@@ -471,14 +471,7 @@ def main():
         ontology = pickle.load(f)
 
     tokenizer_path = pretraining_data / 'tokenizer'
-    if args.loss_type in ("ntp", "survivehr", "icarefm"):
-        tokenizer = femr.models.tokenizer.CLMBRTokenizer.from_pretrained(
-            tokenizer_path, ontology=ontology
-        )
-    else:
-        tokenizer = femr.models.tokenizer.HierarchicalTokenizer.from_pretrained(
-            tokenizer_path, ontology=ontology
-        )
+    tokenizer = femr.models.tokenizer.Tokenizer.from_pretrained(tokenizer_path, ontology=ontology)
     print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
 
 

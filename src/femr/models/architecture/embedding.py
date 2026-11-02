@@ -1854,10 +1854,8 @@ def compute_features(
     )
 
     print(f"the report is {report}")
-    if use_ntp == "yes":
-        tokenizer = femr.models.tokenizer.CLMBRTokenizer.from_pretrained(model_path, ontology=ontology)
-    else:
-        tokenizer = femr.models.tokenizer.HierarchicalTokenizer.from_pretrained(model_path, ontology=ontology)
+    # All models share one tokenizer class; use_ntp no longer changes how it is loaded.
+    tokenizer = femr.models.tokenizer.Tokenizer.from_pretrained(model_path, ontology=ontology)
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task=task,cache_path=cache_path)
 
     filtered_data = db.filter(list(task.label_map.keys()))

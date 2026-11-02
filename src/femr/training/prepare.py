@@ -3,8 +3,7 @@ import pathlib
 import meds_reader
 import pickle
 import femr.splits
-from femr.models.tokenizer.hierarchical_tokenizer import HierarchicalTokenizer
-from femr.models.tokenizer.clmbr_tokenizer import CLMBRTokenizer
+from femr.models.tokenizer import Tokenizer
 import femr.models.tasks
 import femr.models.processor
 import pandas as pd
@@ -72,26 +71,16 @@ def main(args):
         tokenizer_path = pretraining_data_path / 'tokenizer'
         if not tokenizer_path.exists():
             print("Train tokenizer")
-            if args.loss_type in ("ntp", "survivehr", "icarefm"):
-                tokenizer = CLMBRTokenizer.train(
-                    main_database,
-                    vocab_size=args.vocab_size,
-                    ontology=ontology
-                )
-            else:
-                tokenizer = HierarchicalTokenizer.train(
-                    main_database,
-                    vocab_size=args.vocab_size,
-                    ontology=ontology
-                )
+            tokenizer = Tokenizer.train(
+                main_database,
+                vocab_size=args.vocab_size,
+                ontology=ontology
+            )
             # Save the tokenizer to the same directory as the model
             tokenizer.save_pretrained(tokenizer_path)
         else:
             print(f"Loading tokenizer {args.loss_type}")
-            if args.loss_type in ("ntp", "survivehr", "icarefm"):
-                tokenizer = CLMBRTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
-            else:
-                tokenizer = HierarchicalTokenizer.from_pretrained(tokenizer_path, ontology=ontology)
+            tokenizer = Tokenizer.from_pretrained(tokenizer_path, ontology=ontology)
 
         task_loss_type = "mtpp" if args.loss_type == "mtpp_shared" else args.loss_type
         task_path = pretraining_data_path / f'{task_loss_type}_task.pkl'

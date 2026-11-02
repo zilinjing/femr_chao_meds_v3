@@ -262,7 +262,9 @@ def convert_statistics_to_msgpack(
     return result
 
 
-class CLMBRTokenizer(transformers.utils.PushToHubMixin):
+class Tokenizer(transformers.utils.PushToHubMixin):
+    """The tokenizer shared by all models (MOTOR, TPP, MTPP, NTP, SurvivEHR, ICareFM)."""
+
     @classmethod
     def train(
         self,
@@ -272,7 +274,7 @@ class CLMBRTokenizer(transformers.utils.PushToHubMixin):
         num_numeric: int = 1000,
         min_fraction: float = 1/1000,
         banned_properties: Set[str] = {}, 
-    ) -> CLMBRTokenizer:
+    ) -> Tokenizer:
         """Train a FEMR tokenizer from the given dataset"""
 
         properties = db.properties
@@ -293,7 +295,7 @@ class CLMBRTokenizer(transformers.utils.PushToHubMixin):
 
         whatever = convert_statistics_to_msgpack(statistics, vocab_size, num_numeric, ontology, min_fraction)
 
-        return CLMBRTokenizer(
+        return Tokenizer(
             whatever, ontology
         )
 
@@ -305,9 +307,10 @@ class CLMBRTokenizer(transformers.utils.PushToHubMixin):
 
         self.dictionary = dictionary
         vocab = dictionary["vocab"]
-        # collect all event codes in the dataset. used for next token prediction
+        # collect all event codes in the dataset. used for next token prediction.
+        # Dictionaries saved before original_codes existed (old MOTOR/MTPP checkpoints) have none.
         self.original_code_to_id = {
-            code : i for i, code in enumerate(dictionary["original_codes"])
+            code : i for i, code in enumerate(dictionary.get("original_codes", []))
         }
 
         self.string_lookup = collections.defaultdict(dict)
@@ -369,7 +372,7 @@ class CLMBRTokenizer(transformers.utils.PushToHubMixin):
         with open(dictionary_file, "rb") as f:
             dictionary = msgpack.load(f)
 
-        return CLMBRTokenizer(dictionary, ontology=ontology)
+        return Tokenizer(dictionary, ontology=ontology)
 
     def save_pretrained(self, save_directory: Union[str, os.PathLike], push_to_hub: bool = False, **kwargs):
         """
@@ -438,6 +441,8 @@ class CLMBRTokenizer(transformers.utils.PushToHubMixin):
         return codes, weights
 
     def get_event_code_token(self, event: meds_reader.Event) -> Optional[int]:
+        if not self.original_code_to_id:
+            raise RuntimeError("This tokenizer dictionary has no original_codes; retrain it to use next-code targets.")
         return self.original_code_to_id.get(event.code, None)
 
     def get_time_data(self, age: datetime.timedelta, delta: datetime.timedelta) -> float:

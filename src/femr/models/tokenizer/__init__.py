@@ -1,3 +1,5 @@
-from .hierarchical_tokenizer import HierarchicalTokenizer
-from .clmbr_tokenizer import CLMBRTokenizer
-from .flat_tokenizer import FlatTokenizer
+from .tokenizer import Tokenizer
+
+# Old names kept so existing scripts, notebooks and checkpoints keep working.
+HierarchicalTokenizer = Tokenizer
+CLMBRTokenizer = Tokenizer
