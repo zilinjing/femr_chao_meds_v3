@@ -71,22 +71,34 @@ class ReservoirSampler:
         self.samples = []
 
     def add(self, sample, weight):
+        # Weighted reservoir sampling (Chao, 1982): once full, the new sample enters with
+        # probability size * weight / total_weight and replaces a uniformly chosen slot.
+        # (The previous version used weight / total_weight, which kept almost only the first samples.)
         self.total_weight += weight
         if len(self.samples) < self.size:
             self.samples.append(sample)
-            if len(self.samples) == self.size:
-                self.j = random.random()
-                self.p_none = 1
-        else:
-            prob = weight / self.total_weight
-            self.j -= prob * self.p_none
-            self.p_none = self.p_none * (1 - prob)
-
-            if self.j <= 0:
-                self.samples[random.randint(0, self.size - 1)] = sample
-                self.j = random.random()
-                self.p_none = 1
+        elif random.random() < self.size * weight / self.total_weight:
+            self.samples[random.randint(0, self.size - 1)] = sample
 
     def combine(self, other):
+        if not other.samples:
+            return
+        if len(self.samples) == self.size and len(other.samples) == other.size:
+            # Both full: each slot comes from `other` with probability W_other / (W_self + W_other).
+            p_other = other.total_weight / (self.total_weight + other.total_weight)
+            pool = list(other.samples)
+            random.shuffle(pool)
+            for i in range(self.size):
+                if pool and random.random() < p_other:
+                    self.samples[i] = pool.pop()
+            self.total_weight += other.total_weight
+            return
+        if len(self.samples) < self.size and len(other.samples) == other.size:
+            # Start from the full reservoir and replay the smaller one into it.
+            mine, my_weight = self.samples, self.total_weight
+            self.samples, self.total_weight = list(other.samples), other.total_weight
+            for val in mine:
+                self.add(val, my_weight / len(mine))
+            return
         for val in other.samples:
             self.add(val, other.total_weight / len(other.samples))
