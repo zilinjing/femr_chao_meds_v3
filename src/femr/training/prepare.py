@@ -3,6 +3,7 @@ import pathlib
 import meds_reader
 import pickle
 import femr.splits
+import filecmp
 from femr.models.tokenizer import Tokenizer
 import femr.models.tasks
 import femr.models.processor
@@ -68,19 +69,25 @@ def main(args):
         train_database = main_database.filter(train_split.train_subject_ids)
         val_database = main_database.filter(train_split.test_subject_ids)
 
-        tokenizer_path = pretraining_data_path / 'tokenizer'
+        # All models share one tokenizer: it is trained once at --tokenizer_path and reused.
+        local_tokenizer_path = pretraining_data_path / 'tokenizer'
+        tokenizer_path = pathlib.Path(args.tokenizer_path) if args.tokenizer_path else local_tokenizer_path
         if not tokenizer_path.exists():
-            print("Train tokenizer")
-            tokenizer = Tokenizer.train(
-                main_database,
-                vocab_size=args.vocab_size,
-                ontology=ontology
-            )
-            # Save the tokenizer to the same directory as the model
-            tokenizer.save_pretrained(tokenizer_path)
-        else:
-            print(f"Loading tokenizer {args.loss_type}")
-            tokenizer = Tokenizer.from_pretrained(tokenizer_path, ontology=ontology)
+            print(f"Train tokenizer at {tokenizer_path}")
+            Tokenizer.train(
+                main_database, vocab_size=args.vocab_size, ontology=ontology,
+                banned_properties=set(args.banned_properties),
+            ).save_pretrained(tokenizer_path)
+        print(f"Loading tokenizer from {tokenizer_path}")
+        tokenizer = Tokenizer.from_pretrained(tokenizer_path, ontology=ontology)
+
+        # pretrain.py and saved checkpoints read the tokenizer from the pretraining directory,
+        # so keep a copy there and make sure an existing copy is the shared one.
+        if local_tokenizer_path.resolve() != tokenizer_path.resolve():
+            if not local_tokenizer_path.exists():
+                tokenizer.save_pretrained(local_tokenizer_path)
+            elif not filecmp.cmp(local_tokenizer_path / 'dictionary.msgpack', tokenizer_path / 'dictionary.msgpack', shallow=False):
+                raise ValueError(f"{local_tokenizer_path} differs from the shared tokenizer {tokenizer_path}")
 
         task_loss_type = "mtpp" if args.loss_type == "mtpp_shared" else args.loss_type
         task_path = pretraining_data_path / f'{task_loss_type}_task.pkl'
@@ -89,11 +96,16 @@ def main(args):
             # Second, we need to prefit the MOTOR model. This is necessary because piecewise exponential models are unstable without an initial fit
             print(f"Train {args.loss_type} task")
 
+            # MOTOR/TPP/MTPP start from every code token in the vocabulary (no candidate cap),
+            # and keep every task that passes their filters unless --num_final_tasks is given.
+            num_code_tokens = sum(1 for entry in tokenizer.dictionary["vocab"] if entry["type"] == "code")
+            num_final_tasks = args.num_final_tasks or num_code_tokens
+
             if args.loss_type == "motor":
                 print("motor choosen")
                 task = MOTOR_Task.fit_pretraining_task_info(
                     main_database, tokenizer,
-                    num_tasks=8 * 1024,
+                    num_tasks=num_code_tokens,
                     num_bins=args.time_bins,
                     final_layer_size=512,
                     codes_to_skip=codes_to_skip
@@ -102,7 +114,7 @@ def main(args):
                 print("tpp choosen")
                 task = TPP_Task.fit_pretraining_task_info(
                     main_database, tokenizer,
-                    num_tasks=8 * 1024,
+                    num_tasks=num_code_tokens,
                     num_bins=args.time_bins,
                     final_layer_size=512,
                     codes_to_skip=codes_to_skip
@@ -111,8 +123,8 @@ def main(args):
                 print("mtpp choosen")
                 task = MTPP_Task.fit_pretraining_task_info(
                     main_database, tokenizer,
-                    num_tasks=8 * 1024,
-                    num_final_tasks= args.num_final_tasks,
+                    num_tasks=num_code_tokens,
+                    num_final_tasks=num_final_tasks,
                     num_bins=args.time_bins,
                     final_layer_size=512,
                     codes_to_skip=codes_to_skip,
@@ -124,8 +136,8 @@ def main(args):
                 task = MTPPValue_Task.fit_pretraining_task_info(
                     main_database,
                     tokenizer,
-                    num_tasks=8 * 1024,
-                    num_final_tasks=args.num_final_tasks,
+                    num_tasks=num_code_tokens,
+                    num_final_tasks=num_final_tasks,
                     num_bins=args.time_bins,
                     final_layer_size=512,
                     codes_to_skip=codes_to_skip,
@@ -158,6 +170,23 @@ def main(args):
         else:
             with open(task_path, 'rb') as f:
                 task = pickle.load(f)
+            # Bins are fixed when the task is fit; an existing task must match the requested bins.
+            if isinstance(task, MOTOR_Task):
+                fitted = {"time_bins": len(task.time_bins) - 1}
+            elif isinstance(task, TPP_Task):
+                fitted = {"time_bins": task.time_bins.shape[1] - 1}
+            elif isinstance(task, MTPP_Task):
+                fitted = {"time_bins": task.non_numerical_time_bins.shape[1] - 1, "value_bins": task.num_value_bins}
+            else:
+                fitted = {}
+            for name, value in fitted.items():
+                if value != getattr(args, name):
+                    raise ValueError(f"{task_path} was fit with {name}={value}, but --{name} {getattr(args, name)} was given. "
+                                     f"Use another --pretraining_data directory or move the task file away to refit.")
+
+        if args.tasks_only:
+            print(f"--tasks_only: stop after {task_path}")
+            return
 
         # print(f"Motor task length: {len(motor_task.pretraining_task_codes)}")
         processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task, args.hf_cache_path)
@@ -182,7 +211,8 @@ def main(args):
                 print(f"Convert batches (transformer-style), saving to {train_batches_path}")
                 t0 = time.perf_counter()
                 train_batches = processor.convert_dataset(
-                    train_database, tokens_per_batch=args.tokens_per_batch, num_proc=num_threads
+                    train_database, tokens_per_batch=args.tokens_per_batch,
+                    min_subjects_per_batch=args.min_subjects_per_batch, num_proc=num_threads
                 )
                 prepare_timing["train_batches_time"] = time.perf_counter() - t0
                 print(f"Train batches conversion took {prepare_timing['train_batches_time']:.2f}s")
@@ -195,7 +225,8 @@ def main(args):
                 print(f"Convert val batches (transformer-style), saving to {val_batches_path}")
                 t0 = time.perf_counter()
                 val_batches = processor.convert_dataset(
-                    val_database, tokens_per_batch=args.tokens_per_batch, num_proc=num_threads
+                    val_database, tokens_per_batch=args.tokens_per_batch,
+                    min_subjects_per_batch=args.min_subjects_per_batch, num_proc=num_threads
                 )
                 prepare_timing["val_batches_time"] = time.perf_counter() - t0
                 print(f"Val batches conversion took {prepare_timing['val_batches_time']:.2f}s")
@@ -326,7 +357,41 @@ def create_omop_meds_tutorial_argparser():
         action="store",
         required=False,
         type=int,
-        default=8192,
+        default=None,
+        help="Cap on MOTOR/TPP/MTPP tasks after filtering (default: no cap)",
+    )
+
+    parser.add_argument(
+        "--tokenizer_path",
+        dest="tokenizer_path",
+        action="store",
+        required=False,
+        help="Shared tokenizer directory; trained there if missing (default: <pretraining_data>/tokenizer)",
+    )
+
+    parser.add_argument(
+        "--min_subjects_per_batch",
+        dest="min_subjects_per_batch",
+        action="store",
+        required=False,
+        type=int,
+        default=1,
+        help="Transformer windows are at most tokens_per_batch // min_subjects_per_batch events",
+    )
+
+    parser.add_argument(
+        "--banned_properties",
+        dest="banned_properties",
+        nargs="*",
+        default=[],
+        help="Columns that get no text/numeric tokens when the tokenizer is trained (e.g. hadm_id icustay_id)",
+    )
+
+    parser.add_argument(
+        "--tasks_only",
+        dest="tasks_only",
+        action="store_true",
+        help="Stop after the tokenizer and the task pickle (do not build batches)",
     )
 
     parser.add_argument(
