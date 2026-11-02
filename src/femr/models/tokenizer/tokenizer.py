@@ -6,6 +6,7 @@ import datetime
 import functools
 import math
 import os
+import random
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple, Union
 
 import meds_reader
@@ -29,9 +30,7 @@ def agg_statistics(stats1, stats2):
 
         for k, v in stats2["code_counts"].items():
             stats1["code_counts"][k] += v
-        for code in stats2["original_codes"]:
-            if code not in stats1["original_codes"]:
-                stats1["original_codes"].append(code)
+        stats1["original_codes"] |= stats2["original_codes"]
         for k in stats1["property_samples"]:
             v1 = stats1["property_samples"][k]
             v2 = stats2["property_samples"][k]
@@ -92,7 +91,13 @@ def map_statistics(
         } for k in properties if k not in bad_properties
     }
 
+    first_subject_id = -1
     for subject in subjects:
+        if first_subject_id == -1:
+            # Seed each shard by its first subject so reservoir sampling is reproducible.
+            first_subject_id = int(subject.subject_id)
+            random.seed(first_subject_id)
+
         total_events = len(subject.events)
 
         if total_events == 0:
@@ -156,18 +161,25 @@ def map_statistics(
         "age_stats": dict(age_stats),
         "code_counts": code_counts,
         "property_samples": property_samples,
-        "original_codes": list(original_codes),
+        "original_codes": original_codes,
+        "first_subject_id": first_subject_id,
     }
 
 
 def entropy(p):
     return p * math.log(p) + (1 - p) * math.log(1 - p)
 
+
+def vocab_sort_key(entry):
+    """Sort by score; break ties by name so the order never depends on dict/set iteration order."""
+    name = entry.get("code_string", entry.get("text_string", ""))
+    return (entry["weight"], entry["type"], str(entry.get("property", "")), str(name), entry.get("val_start", 0.0))
+
+
 def convert_statistics_to_msgpack(
     statistics, vocab_size: int, num_numeric: int, ontology: femr.ontology.Ontology, min_fraction: float,
 ):
     vocab = []
-    original_codes = statistics["original_codes"]
     for code, weight in statistics["code_counts"].items():
         baseline = min([1] + [statistics["code_counts"][parent] for parent in ontology.get_parents(code)])
         weight = weight / baseline
@@ -235,16 +247,19 @@ def convert_statistics_to_msgpack(
     min_entropy = entropy(min_fraction)
 
     vocab = [v for v in vocab if v["weight"] <= min_entropy]
-    original_codes = [
-        v["code_string"] for v in vocab
-        if "code_string" in v and v["code_string"] in original_codes
-    ]
 
-    vocab.sort(key=lambda a: a["weight"])
+    vocab.sort(key=vocab_sort_key)
     print(f"min fraction is {min_fraction}, min_entropy is {min_entropy}")
     print(f"vocab currently have {len(vocab)} tokens, limite is {vocab_size} vocab size")
     vocab_size = min(len(vocab),vocab_size)
     vocab = vocab[:vocab_size]
+
+    # Codes observed as raw event codes (not ancestor-only), taken after the cut so every
+    # next-code target also has its own input token.
+    original_codes = [
+        v["code_string"] for v in vocab
+        if v["type"] == "code" and v["code_string"] in statistics["original_codes"]
+    ]
 
     age_stats_dict = {}
     for k, v in statistics["age_stats"].items():
@@ -273,25 +288,26 @@ class Tokenizer(transformers.utils.PushToHubMixin):
         ontology: femr.ontology.Ontology,
         num_numeric: int = 1000,
         min_fraction: float = 1/1000,
-        banned_properties: Set[str] = {}, 
+        banned_properties: Set[str] = {},
     ) -> Tokenizer:
         """Train a FEMR tokenizer from the given dataset"""
 
-        properties = db.properties
-        for banned in banned_properties:
-            del properties[banned]
+        # Banned columns get no text or numeric tokens.
+        properties = {k: v for k, v in db.properties.items() if k not in banned_properties}
 
-        statistics = functools.reduce(
-            agg_statistics,
-            db.map(
-                functools.partial(
-                    map_statistics,
-                    num_subjects=len(db),
-                    ontology=ontology,
-                    properties = db.properties,
-                )
-            ),
+        shard_statistics = db.map(
+            functools.partial(
+                map_statistics,
+                num_subjects=len(db),
+                ontology=ontology,
+                properties = properties,
+            )
         )
+        # Shards finish in arbitrary order. Merge them in a fixed order and with a fixed seed
+        # (merging reservoir samples is random) so the tokenizer is reproducible.
+        shard_statistics = sorted(shard_statistics, key=lambda s: s["first_subject_id"])
+        random.seed(0)
+        statistics = functools.reduce(agg_statistics, shard_statistics)
 
         whatever = convert_statistics_to_msgpack(statistics, vocab_size, num_numeric, ontology, min_fraction)
 
