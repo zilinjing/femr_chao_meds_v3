@@ -172,7 +172,7 @@ def _prefit_motor_agg(first: Any, second: Any) -> Any:
     # Combine each task's value stats separately
     for i in range(len(first[2])):
         first[2][i].combine(second[2][i])
-    first[3] += second[3]
+    np.add(first[3], second[3], out=first[3])  # first is a tuple: add in place, no item assignment
     return first
 
 def keep_unique_bins(value_samples, num_bins):

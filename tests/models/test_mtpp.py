@@ -2,6 +2,7 @@
 
 import dataclasses
 import datetime
+import functools
 import random
 from typing import Any, List, Optional
 
@@ -10,7 +11,7 @@ import numpy as np
 import torch
 
 from femr.models.architecture.embedding import MTPPSharedTaskHead
-from femr.models.tasks.mtpp import MTPP_Task, _prefit_motor_map
+from femr.models.tasks.mtpp import MTPP_Task, _prefit_motor_agg, _prefit_motor_map
 
 DAY = datetime.timedelta(days=1)
 START = datetime.datetime(2020, 1, 1)
@@ -52,6 +53,18 @@ def test_value_count_is_the_raw_count_not_the_label_position_count():
 
     assert raw_counts[0] == 1
     assert len(value_samples[0].samples) > 1  # counted once per label position before it
+
+
+def test_shard_results_merge_like_db_map():
+    # db.map returns one tuple per shard; MTPP_Task.fit_pretraining_task_info reduces them with
+    # _prefit_motor_agg. A failure here made the real run hang inside meds_reader.
+    random.seed(0)
+    subject = _subject([Event("X", START + 10 * DAY + datetime.timedelta(hours=1), numeric_value=5.0)])
+    shards = [_prefit_motor_map([subject], tasks=["X", "A"], ontology=FlatOntology()) for _ in range(3)]
+    merged = functools.reduce(_prefit_motor_agg, shards)
+
+    assert merged[3].tolist() == [3, 0]
+    assert merged[1][0][1] == 3 * shards[1][1][0][1]  # event counts add up
 
 
 def _task():

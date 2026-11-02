@@ -12,6 +12,11 @@ import polars as pl
 import logging
 import time
 import json
+import contextlib
+import os
+import sys
+import threading
+import traceback
 from femr.models.tasks.motor import MOTOR_Task as MOTOR_Task
 from femr.models.tasks.ntp import CLMBRTask as CLMBRTask
 from femr.models.tasks.tpp import TPP_Task as TPP_Task
@@ -19,6 +24,40 @@ from femr.models.tasks.mtpp import MTPP_Task as MTPP_Task
 from femr.models.tasks.mtppvalue import MTPPValue_Task as MTPPValue_Task
 from femr.models.tasks.survivehr_task import SurvivEHRTask
 from femr.models.tasks.icarefm_task import ICareFMTask
+
+
+@contextlib.contextmanager
+def fail_fast(database, poll_seconds=10):
+    """Exit with an error instead of hanging when meds_reader multiprocessing fails.
+
+    meds_reader never notices a dead worker (the parent waits for its result forever), and on an
+    exception its shutdown joins workers that may be blocked sending results nobody reads. So: a
+    watchdog thread stops the run when a worker exits with an error, and an exception in the parent
+    is printed and ends the run before meds_reader's shutdown. Both kill the workers and exit with 1.
+    """
+    workers = getattr(database, "_processes", None) or []
+
+    def stop(message):
+        print(message, file=sys.stderr, flush=True)
+        for worker in workers:
+            if worker.is_alive():
+                worker.kill()
+        sys.stdout.flush()
+        os._exit(1)
+
+    def watch():
+        while True:
+            for worker in workers:
+                if worker.exitcode not in (None, 0):
+                    stop(f"meds_reader worker {worker.pid} died (exit code {worker.exitcode}); stopping prepare.py.")
+            time.sleep(poll_seconds)
+
+    threading.Thread(target=watch, daemon=True).start()
+    try:
+        yield
+    except BaseException:
+        traceback.print_exc()
+        stop("prepare.py failed; meds_reader workers stopped.")
 
 
 def main(args):
@@ -33,7 +72,7 @@ def main(args):
         codes_to_skip = codes_to_skip["code"].to_list()
 
 
-    with meds_reader.SubjectDatabase(str(meds_reader_path), num_threads=args.num_threads) as database:
+    with meds_reader.SubjectDatabase(str(meds_reader_path), num_threads=args.num_threads) as database, fail_fast(database):
         subject_ids = [_ for _ in database]
         print(f"subject_ids length: {len(subject_ids)}")
         ontology_path = pathlib.Path(args.ontology_path)
