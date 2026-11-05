@@ -1,6 +1,12 @@
 """Train the strengthened tabular baselines (XGBoost + DeepHit) on value-aware features.
 
-MIMIC-IV only. Mirrors evaluation/baseline/run_all.py; differences, all deliberate:
+Usually started by script/<dataset>/baseline.sh (see evaluation/README.md), which passes the
+dataset's paths. With --eval_root, every task also gets
+<eval_root>/<outcome|phenotype>/<task>/<xgboost|deephit>/{predictions.parquet or
+tte_predictions.parquet, metrics.json}, scored like the foundation-model probes, so the baselines
+appear as rows of the summary tables.
+
+Mirrors evaluation/baseline/run_all.py; differences, all deliberate:
 
 1. Reads from storage/ora/meds_tab/ instead of the submitted feature root, so the
    original results are preserved and both baseline rows can be reported.
@@ -39,6 +45,7 @@ import time
 import numpy as np
 import pandas as pd
 
+from femr.evaluation.common.metrics import binary_metrics, cindex_metrics, write_metrics
 from train_utils import (
     load_metrics,
     save_metrics,
@@ -80,10 +87,22 @@ parser.add_argument("--device", default="cpu",
                     help="XGBoost device: 'cpu' or 'cuda'. cuda is ~9x faster here.")
 parser.add_argument("--patience", type=int, default=5,
                     help="EarlyStopping patience for DeepHit (torchtuples default is 10).")
+parser.add_argument("--data_path", default=DATA_PATH, help="MEDS-Tab features written by extract.sh")
+parser.add_argument("--split_path", default=SPLIT_PATH, help="main_split.csv")
+parser.add_argument("--truncation", type=float, default=5 * 365,
+                    help="C-index horizon in days (300 for MIMIC, 365 for CUMC)")
+parser.add_argument("--tte_col", default=TTE_COL,
+                    help="Time column of the TTE labels (time_to_event_days for MIMIC, "
+                         "time_to_event for CUMC)")
+parser.add_argument("--eval_root", default=None,
+                    help="Also write predictions + metrics.json in the evaluation results layout")
 args = parser.parse_args()
 
 if args.results_dir:
     RESULTS_PATH = args.results_dir
+DATA_PATH = args.data_path
+SPLIT_PATH = args.split_path
+TTE_COL = args.tte_col
 WD_VALUES = [float(x) for x in args.wd.split(",")] if args.wd else None
 
 
@@ -141,12 +160,38 @@ def load_features_labels(feature_path, label_path, split_path):
     return X, labels
 
 
-def run_one(name: str, suffix: str, model: str, outcome: str) -> None:
+def write_eval_outputs(family, name, model, y, pred_df=None, surv_df=None):
+    """Write <eval_root>/<family>/<task>/<model>/ in the same format as the foundation-model probes."""
+    out_dir = os.path.join(args.eval_root, family, name, model)
+    os.makedirs(out_dir, exist_ok=True)
+    if surv_df is None:  # binary
+        pred_df.to_parquet(os.path.join(out_dir, "predictions.parquet"), index=False)
+        write_metrics(out_dir, binary_metrics(pred_df))
+        return
+    test = y[y["split_name"] == "test"]
+    train = y[y["split_name"].isin(["train", "tuning", "hyper"])]
+    row = int(np.argmin(np.abs(surv_df.index.to_numpy() - args.truncation)))
+    pred = pd.DataFrame({
+        "subject_id": test.index.get_level_values("subject_id"),
+        "prediction_time": test.index.get_level_values("prediction_time"),
+        "time_to_event": test[TTE_COL].to_numpy(),
+        "tte_label": test["tte_label"].to_numpy(),
+        "risk": 1.0 - surv_df.iloc[row].to_numpy(),
+    })
+    pred.to_parquet(os.path.join(out_dir, "tte_predictions.parquet"), index=False)
+    write_metrics(out_dir, cindex_metrics(pred, train[TTE_COL], train["tte_label"], args.truncation,
+                                          n_jobs=args.n_jobs))
+
+
+def run_one(name: str, suffix: str, model: str, outcome: str, family: str) -> None:
     out_file = os.path.join(RESULTS_PATH, f"{name}_{model}.pickle")
     print("-" * 42)
     print(f"mimic {name} [{outcome}]")
 
-    if os.path.exists(out_file) and not args.overwrite:
+    # Reuse a finished run, unless its evaluation row (--eval_root) has not been written yet.
+    eval_done = not args.eval_root or os.path.exists(
+        os.path.join(args.eval_root, family, name, model, "metrics.json"))
+    if os.path.exists(out_file) and eval_done and not args.overwrite:
         summarize(load_metrics(out_file))
         return
 
@@ -181,13 +226,15 @@ def run_one(name: str, suffix: str, model: str, outcome: str) -> None:
                     test_idx.get_level_values("prediction_time"),
                 )
             ]
-            metrics = train_survival(
-                *splits, model_type="deephit",
+            metrics, surv_df = train_survival(
+                *splits, model_type="deephit", truncation=args.truncation,
                 test_order=test_order, save_path=boot_dir,
                 model_name=f"meds_tab_deephit_{name}",
                 grid_mode=args.deephit_grid, patience=args.patience,
                 n_jobs=args.n_jobs, artifacts=artifacts, wd_values=WD_VALUES,
             )
+            if args.eval_root:
+                write_eval_outputs(family, name, model, y, surv_df=surv_df)
         else:
             splits = split_binary(X, y)
             metrics, pred_df = train_binary(
@@ -195,6 +242,8 @@ def run_one(name: str, suffix: str, model: str, outcome: str) -> None:
                 model_name=f"meds_tab_xgboost_{name}", device=args.device,
             )
             pred_df.to_parquet(out_file.replace(".pickle", "_predictions.parquet"), index=False)
+            if args.eval_root:
+                write_eval_outputs(family, name, model, y, pred_df=pred_df)
         t_train = time.perf_counter() - t1
 
         save_metrics(metrics, out_file)
@@ -231,9 +280,9 @@ for name in phenotypes:
     for outcome, suffix, model in [("survival", "", "deephit"), ("binary", "_binary", "xgboost")]:
         if outcome in args.skip:
             continue
-        run_one(name, suffix, model, outcome)
+        run_one(name, suffix, model, outcome, "phenotype")
 
 # Patient outcomes: binary only.
 if "binary" not in args.skip:
     for name in binary_only:
-        run_one(name, "_binary", "xgboost", "binary")
+        run_one(name, "_binary", "xgboost", "binary", "outcome")
