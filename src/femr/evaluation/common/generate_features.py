@@ -116,6 +116,18 @@ def create_arg_parser():
         help="hf cache path",
     )
     args.add_argument(
+        "--batch_dir",
+        dest="batch_dir",
+        default=None,
+        help="Folder of saved batches, shared by models with the same tokenizer (built if missing)",
+    )
+    args.add_argument(
+        "--batches_only",
+        action="store_true",
+        help="Only build --batch_dir: no model is loaded and no features are written, so "
+             "--model_path may be a folder holding just the tokenizer",
+    )
+    args.add_argument(
         "--task_type",
         dest="task_type",
         default="binary",
@@ -238,8 +250,12 @@ def main():
                 loss_type=args.loss_type,
                 use_ntp=args.use_ntp,
                 cache_path=args.cache_path,
+                batch_dir=args.batch_dir,
                 profile_flops=profile_flops,
+                batches_only=args.batches_only,
             )
+            if args.batches_only:
+                return
 
             with open(feature_output_path, 'wb') as f:
                 pickle.dump(features, f)

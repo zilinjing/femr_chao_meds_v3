@@ -1,52 +1,43 @@
 import datetime
-import threading
-from types import SimpleNamespace
+import math
 
 import dill
+import pytest
 
-from femr.models.tasks.survivehr_causal import SurvivEHRCausalTask
+from femr.models.tasks.survivehr_task import SurvivEHRTask
 
-
-def test_add_event_consumes_same_timestamp_events_without_desynchronizing_cursor():
-    task = SurvivEHRCausalTask(pretraining_task_info=[], numerical_task_codes=[])
-    start = datetime.datetime(2024, 1, 1, 0, 0, 0)
-    later = datetime.datetime(2024, 1, 1, 12, 10, 0)
-
-    task._current_subject_id = 123
-    task._next_event_cursor = 1
-    task._kept_events = [
-        SimpleNamespace(time=start),
-        SimpleNamespace(time=start),
-        SimpleNamespace(time=later),
-    ]
-    task._kept_event_targets = [
-        (0, None),
-        (1, None),
-        (2, 3.5),
-    ]
-    task.per_subject_event_time = []
-    task.per_subject_event_label = []
-    task.per_subject_event_value = []
-
-    assert task.add_event(start, start, actually_add=True) == 0
-    assert task._next_event_cursor == 2
-
-    assert task.add_event(start, later, actually_add=True) == 1
-    assert task._next_event_cursor == 3
-    assert task.per_subject_event_label == [2]
-    assert task.per_subject_event_value == [3.5]
-    assert task.per_subject_event_time == [12.166666666666666 / 24.0]
+START = datetime.datetime(2024, 1, 1, 0, 0, 0)
+LATER = datetime.datetime(2024, 1, 1, 12, 10, 0)
 
 
-def test_task_drops_transient_subject_state_during_pickling():
-    task = SurvivEHRCausalTask(pretraining_task_info=[], numerical_task_codes=[])
-    task._current_subject_id = 123
-    task._kept_events = [threading.Lock()]
-    task._kept_event_targets = [(1, None)]
-    task._next_event_cursor = 1
+def make_task():
+    task = SurvivEHRTask(
+        original_codes=["A", "B", "LAB"], numerical_task_codes=["LAB"], value_normalization={"LAB": (0.0, 10.0)}
+    )
+    task.start_subject(None, None)
+    return task
+
+
+def test_add_event_records_same_timestamp_events_with_time_zero():
+    # They are kept: the head's add_noise strategy separates zero times, the task does not drop them.
+    task = make_task()
+
+    assert task.add_event(START, START, [0]) == 1
+    assert task.add_event(START, LATER, [2], next_numeric_value=7.5) == 1
+
+    assert task.per_subject_event_label == [1, 3]  # code index + 1
+    assert task.per_subject_event_time == pytest.approx([0.0, 730 / 1440])  # days
+    assert math.isnan(task.per_subject_event_value[0])
+    assert task.per_subject_event_value[1] == pytest.approx(0.25)  # 7.5 in (0, 10), centered on 0
+    assert task.per_subject_value_mask == [False, True]
+
+
+def test_task_can_be_pickled_after_processing_a_subject():
+    task = make_task()
+    task.add_event(START, LATER, [2], next_numeric_value=5.0)
 
     restored = dill.loads(dill.dumps(task))
 
-    assert not hasattr(restored, "_kept_events")
-    assert not hasattr(restored, "_kept_event_targets")
-    assert not hasattr(restored, "_next_event_cursor")
+    assert restored.value_normalization == {"LAB": (0.0, 10.0)}
+    assert restored.per_subject_event_label == [3]
+    assert restored.per_subject_event_value == [0.0]

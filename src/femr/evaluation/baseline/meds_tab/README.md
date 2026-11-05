@@ -28,7 +28,7 @@ strengthened baseline is not ours to defend.
 | | |
 |---|---|
 | MEDS reader | `/data/zilinjing/ethos_fm/storage/ora/meds_v0.6_reader` |
-| Cohorts | `storage/ora/cohort/{outcome/cohort,phenotype/binary,phenotype/tte}/<task>/` |
+| Cohorts | `storage/ora/cohort/{outcome/cohort_100k,phenotype/binary,phenotype/tte}/<task>/` |
 | Features out | `storage/ora/meds_tab/<task>[_binary]/` |
 | Results out | `storage/ora/result/meds_tab/` |
 | Splits | `storage/ora/metadata/main_split.csv` |

@@ -55,6 +55,26 @@ def test_value_count_is_the_raw_count_not_the_label_position_count():
     assert len(value_samples[0].samples) > 1  # counted once per label position before it
 
 
+def test_count_label_positions_keeps_codes_the_raw_count_filters_out():
+    class Db:
+        def map(self, func):
+            return [func([_subject([Event("X", START + 10 * DAY + datetime.timedelta(hours=1), numeric_value=5.0)])])]
+
+    class Tokenizer:
+        ontology = FlatOntology()
+        dictionary = {"vocab": [{"type": "code", "code_string": code} for code in ("A", "X")]}
+
+    def fit(count_label_positions):
+        random.seed(0)
+        return MTPP_Task.fit_pretraining_task_info(
+            Db(), Tokenizer(), num_tasks=2, num_final_tasks=10, num_bins=2, final_layer_size=4,
+            value_count_threshold=3, num_value_bins=2, count_label_positions=count_label_positions,
+        )
+
+    assert "X" not in fit(False).numerical_task_to_index_map  # 1 raw value < 3
+    assert "X" in fit(True).numerical_task_to_index_map  # counted once per label position before it
+
+
 def test_shard_results_merge_like_db_map():
     # db.map returns one tuple per shard; MTPP_Task.fit_pretraining_task_info reduces them with
     # _prefit_motor_agg. A failure here made the real run hang inside meds_reader.

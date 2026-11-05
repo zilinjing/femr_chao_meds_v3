@@ -255,7 +255,8 @@ def evaluate_survival(surv_df, y_train, y_test, truncation=5 * 365, n_report=N_R
 def train_survival(x_train, y_train, x_val, y_val, x_hyper, y_hyper, x_test, y_test, model_type,
                    test_order=None, save_path=None, model_name="meds_tab_deephit",
                    grid_mode="fast", patience=5, n_jobs=16, artifacts=None,
-                   wd_values=None):
+                   wd_values=None, truncation=5 * 365):
+    """Returns (metrics, surv_df); surv_df = predicted survival curves of the test rows."""
     set_seed()
 
     in_features = x_train.shape[1]
@@ -379,7 +380,7 @@ def train_survival(x_train, y_train, x_val, y_val, x_hyper, y_hyper, x_test, y_t
                 "patience": patience,
                 "n_configs": len(grid),
                 "seed": 42,
-                "net_file": f"tte_model_{5 * 365}.pt",
+                "net_file": f"tte_model_{truncation}.pt",
             }
         )
         bundle_path = os.path.join(save_path, "reproducibility.pkl")
@@ -390,14 +391,14 @@ def train_survival(x_train, y_train, x_val, y_val, x_hyper, y_hyper, x_test, y_t
 
     surv_df = best_model.predict_surv_df(x_test)
     metrics = evaluate_survival(
-        surv_df, y_train, y_test, test_order=test_order, save_path=save_path,
+        surv_df, y_train, y_test, truncation=truncation, test_order=test_order, save_path=save_path,
         model_name=model_name, model=best_model, n_jobs=n_jobs,
         best_params={**best_params, "layers": list(best_params["layers"])},
     )
     metrics["_best_params"] = [
         {**best_params, "layers": list(best_params["layers"]), "val_nll": float(best_loss)}
     ]
-    return metrics
+    return metrics, surv_df
 
 
 # =========================

@@ -45,19 +45,12 @@ import meds_reader
 import numpy as np
 import pandas as pd
 
-from femr.evaluation.common.eval_utils import (
-    _bootstrap_regression_metrics,
-    _metric_mean_std,
-    _update_metric_table,
-)
+from femr.evaluation.common.metrics import r2_metrics, write_metrics
 
 # ============================================================================
 # Constants
 # ============================================================================
-N_BOOT = 10000
-BOOTSTRAP_SEED = 42
-MODEL_COL = "Most Recent Imputation"
-MODEL_NAME = "imputation"
+MODEL_NAME = "most_recent"  # row name in regression_r2.csv
 DEFAULT_OUTPUT_DIR = Path("/shared/share_mala/zj2398/mimic/task/regression")
 
 MIMIC_CODE_DICT = {
@@ -85,10 +78,10 @@ MIMIC_CODE_DICT = {
 
 
 CUMC_CODE_DICT = {
-    # "platelets": "LOINC/26515-7//UCUM/10*9/L",
-    # "creatinine": "LOINC/2160-0//UCUM/mg/dL",
+    "platelets": "LOINC/26515-7//UCUM/10*9/L",
+    "creatinine": "LOINC/2160-0//UCUM/mg/dL",
     # "bilirubin": "LOINC/1968-7//UCUM/mg/dL",
-    # "spo2":"LOINC/2708-6//UCUM/%",
+    "spo2":"LOINC/2708-6//UCUM/%",
     "glucose":"LOINC/2339-0//UCUM/mg/dL"
 }
 
@@ -252,37 +245,13 @@ def evaluate_and_save(
     output_dir: Path,
 ):
     """
-    Compute bootstrap metrics and write outputs.
-
-    The prediction parquet path mirrors the learned-model layout:
-        <output_dir>/imputation/results/<task>/test_predictions_50k.parquet
-
-    Keeping that layout consistent means the hypothesis-test script can load the
-    imputation baseline the same way it loads ntp, mtpp, and motor outputs.
+    Write <output_dir>/<task>/most_recent/{predictions.parquet, metrics.json}, the same layout
+    and metric (R^2, mean/std over 1000 test resamples) as the foundation-model probes.
     """
-    y_true = pred_df["y_true"].to_numpy()
-    y_pred = pred_df["y_pred"].to_numpy()
-
-    metrics = _bootstrap_regression_metrics(y_true, y_pred, n_boot=N_BOOT, seed=BOOTSTRAP_SEED)
-
-    rmse_mean, rmse_std = _metric_mean_std(metrics, "rmse")
-    mae_mean, mae_std = _metric_mean_std(metrics, "mae")
-    r2_mean, r2_std = _metric_mean_std(metrics, "r2")
-
-    print(f"  RMSE: {rmse_mean:.4f} ({rmse_std:.4f})")
-    print(f"  MAE:  {mae_mean:.4f} ({mae_std:.4f})")
-    print(f"  R2:   {r2_mean:.4f} ({r2_std:.4f})")
-
-    prediction_dir = output_dir / MODEL_NAME / "results" / task
-    prediction_dir.mkdir(parents=True, exist_ok=True)
-    pred_path = prediction_dir / "test_predictions_50k.parquet"
-    pred_df.to_parquet(pred_path, index=False)
-    print(f"  Saved predictions to: {pred_path}")
-
-    summary_dir = output_dir / "summary_tables"
-    _update_metric_table(summary_dir, "rmse", task, MODEL_COL, rmse_mean, rmse_std)
-    _update_metric_table(summary_dir, "mae", task, MODEL_COL, mae_mean, mae_std)
-    _update_metric_table(summary_dir, "r2", task, MODEL_COL, r2_mean, r2_std)
+    out_dir = output_dir / task / MODEL_NAME
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pred_df.to_parquet(out_dir / "predictions.parquet", index=False)
+    write_metrics(out_dir, r2_metrics(pred_df["y_true"], pred_df["y_pred"]))
 
 
 # ============================================================================
@@ -295,19 +264,19 @@ def run_baseline(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     dataset: str = "mimic",
     num_threads: int = 40,
+    tasks: List[str] = None,
 ):
     """
     Run the most-recent-value baseline for every task in the dataset-specific map.
 
-    The MEDS pass computes predictions, and then each task writes:
-    - a regression-format prediction parquet under imputation/results/
-    - bootstrap summary metrics into summary_tables/
+    The MEDS pass computes predictions, and then each task writes
+    <output_dir>/<task>/most_recent/{predictions.parquet, metrics.json}.
     """
     if dataset == "mimic":
         CODE_DICT = MIMIC_CODE_DICT 
     else:
         CODE_DICT = CUMC_CODE_DICT
-    tasks = list(CODE_DICT.keys())
+    tasks = tasks or list(CODE_DICT.keys())
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Initializing MEDS database: {meds_path}")
@@ -363,6 +332,8 @@ def main():
     )
     parser.add_argument("--dataset", type=str,default="mimic")
     parser.add_argument("--num_threads", type=int, default=32)
+    parser.add_argument("--tasks", type=str, default=None,
+                        help="Comma-separated tasks to run (default: every task of the dataset's code map).")
     args = parser.parse_args()
 
     # Keep backward compatibility with the older CLI flag name while making the
@@ -376,6 +347,7 @@ def main():
         output_dir=output_dir,
         dataset=args.dataset,
         num_threads=args.num_threads,
+        tasks=args.tasks.split(",") if args.tasks else None,
     )
 
 
