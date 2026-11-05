@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from dataclasses import dataclass
 import os
+import datasets
 import meds
 import meds_reader
 import numpy as np
@@ -1826,7 +1827,9 @@ def compute_features(
         loss_type: str = None,
         use_ntp: bool = False,
         cache_path: str = None,
-) -> Dict[str, np.ndarray]:
+        batch_dir: Optional[str] = None,
+        batches_only: bool = False,
+) -> Optional[Dict[str, np.ndarray]]:
     """ "Compute features for a set of labels given a dataset and a model.
 
     Arguments:
@@ -1841,6 +1844,11 @@ def compute_features(
         profile_flops: Run each forward pass under the torch profiler to count FLOPs. The
             profiler's per-batch overhead inflates "infer_time", so measure FLOPs and time in
             two separate passes rather than trusting both from one run.
+        batch_dir: Folder of saved batches: load them if it exists, otherwise build and save them.
+            Batches depend on the tokenizer, ontology, labels and batch settings, not on the model
+            weights, so the caller must use a different folder when any of those change.
+        batches_only: Only build batch_dir and return None. No model is loaded, so model_path
+            may be a folder holding just the tokenizer.
 
     Returns:
         A dictionary of numpy arrays, with three keys, "subject_ids", "feature_times" and "features"
@@ -1859,32 +1867,43 @@ def compute_features(
     #     task_config=task.get_task_config(),
     #     loss_type=loss_type,
     # )
-    model, report = load_femr_model_with_compat(
-      model_path,
-      model_cls=FEMRModel,
-      task_config=task.get_task_config(),
-      loss_type=loss_type,
-      drop_task_head=True,
-    )
+    if not batches_only:
+        model, report = load_femr_model_with_compat(
+          model_path,
+          model_cls=FEMRModel,
+          task_config=task.get_task_config(),
+          loss_type=loss_type,
+          drop_task_head=True,
+        )
 
-    print(f"the report is {report}")
+        print(f"the report is {report}")
     # All models share one tokenizer class; use_ntp no longer changes how it is loaded.
     tokenizer = femr.models.tokenizer.Tokenizer.from_pretrained(model_path, ontology=ontology)
     processor = femr.models.processor.FEMRBatchProcessor(tokenizer, task=task,cache_path=cache_path)
 
     filtered_data = db.filter(list(task.label_map.keys()))
 
-    if device:
+    if device and not batches_only:
         model = model.to(device)
 
     cpu_device = torch.device("cpu")
 
     print(f"The maximum context length is {tokens_per_batch/min_subjects_per_batch},  {min_subjects_per_batch} subjects and {tokens_per_batch} tokens per batch")
     preprocess_t0 = time.perf_counter()
-    batches = processor.convert_dataset(
-        filtered_data, tokens_per_batch=tokens_per_batch, min_subjects_per_batch=min_subjects_per_batch, num_proc=num_proc
-    )
+    if batch_dir and os.path.exists(batch_dir):
+        print(f"Loading saved batches from {batch_dir}")
+        batches = datasets.load_from_disk(batch_dir)
+    else:
+        batches = processor.convert_dataset(
+            filtered_data, tokens_per_batch=tokens_per_batch, min_subjects_per_batch=min_subjects_per_batch, num_proc=num_proc
+        )
+        if batch_dir:  # rename last, so a crash never leaves a half-written folder that looks finished
+            batches.save_to_disk(batch_dir + ".tmp")
+            os.rename(batch_dir + ".tmp", batch_dir)
     preprocess_time = time.perf_counter() - preprocess_t0
+    if batches_only:
+        print(f"Saved batches in {batch_dir} ({preprocess_time:.0f} s)")
+        return None
 
     batches.set_format("pt")
 
