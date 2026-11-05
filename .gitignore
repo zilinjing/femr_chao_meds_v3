@@ -22,5 +22,4 @@ wandb/
 **/wandb/
 *.wandb
 
-
 *.out
