@@ -50,16 +50,115 @@ conda activate tte
 
 All commands below are run from the repository root. Pick the launcher for your dataset:
 
-| Dataset / cluster | Models (transformer) | Models (mamba) | Baselines |
-|---|---|---|---|
-| MIMIC-IV on GSB | `src/femr/evaluation/script/mimic/gsb/transformer.sh` | `.../mimic/gsb/mamba.sh` | `.../mimic/gsb/baseline.sh` |
-| CUMC on the cumc cluster | `src/femr/evaluation/script/cumc/transformer.sh` | `.../cumc/mamba.sh` | `.../cumc/baseline.sh` |
+| Dataset / cluster | Shared batches | Models (transformer) | Models (mamba) | Baselines |
+|---|---|---|---|---|
+| MIMIC-IV on GSB | built by the first model | `src/femr/evaluation/script/mimic/gsb/transformer.sh` | `.../mimic/gsb/mamba.sh` | `.../mimic/gsb/baseline.sh` |
+| CUMC on the cumc cluster | `src/femr/evaluation/script/cumc/batches.sh` | `src/femr/evaluation/script/cumc/transformer.sh` | `.../cumc/mamba.sh` | `.../cumc/baseline.sh` |
 
 The launchers are three lines each; they load the shared code `script/lib.sh` (settings that must be
 identical for every model) and an env file with the dataset's paths (`script/env/mimic_gsb.sh`,
 `script/env/cumc_cumc.sh`). This mirrors the pretraining launchers in `src/femr/training/script/`.
 
-## 3. Evaluate one model
+## 3. Evaluate the models
+
+Evaluation has two steps, always in this order:
+
+```
+step 1: shared batches (CPU, once per task)  ──>  step 2: run the models (GPU, once per model)
+```
+
+Turning patients into batches is the slow part, and batches do not depend on the model weights. So
+they are made once per task, and every model with the same tokenizer reuses them.
+
+### Step 1: prepare the shared batches
+
+**CUMC.** Do this before running any model. It needs no GPU and no trained model, only the shared
+tokenizer in `META_DIR/tokenizer/`.
+
+First check the labels, tokenizer, packages and machine. This only reads files. Fix every `PROBLEM`
+line before going on.
+
+```bash
+S=src/femr/evaluation/script/cumc
+bash $S/preflight.sh | tee preflight.txt
+```
+
+Then build the batches. There is one group per task family:
+
+| Group | Tasks on CUMC |
+|---|---|
+| `outcome` | `death`, `long_los`, `readmission` |
+| `phenotype` | `AMI`, `Celiac`, `Ischemic_Stroke`, `MASLD` |
+| `regression` | `platelets`, `creatinine`, `spo2`, `glucose` |
+
+All three groups at the same time, with one command:
+
+```bash
+nohup bash $S/batches.sh all > batches.out 2>&1 &
+```
+
+Or start each group with its own command. A command only builds the group it names. The three lines
+below also run at the same time, because each ends with `&`, so this is the same as `all` with one
+`.out` file per group:
+
+```bash
+nohup bash $S/batches.sh outcome    > batches_outcome.out 2>&1 &
+nohup bash $S/batches.sh phenotype  > batches_phenotype.out 2>&1 &
+nohup bash $S/batches.sh regression > batches_regression.out 2>&1 &
+```
+
+If memory is short, start a group only after the previous one has finished.
+
+Only some tasks of a group:
+
+```bash
+nohup bash $S/batches.sh regression glucose,platelets > batches_regression.out 2>&1 &
+```
+
+A group runs its tasks one after the other with `BATCH_WORKERS` workers (default 28). To change it,
+put it in front: `BATCH_WORKERS=32 nohup bash $S/batches.sh all > batches.out 2>&1 &`.
+
+Each group has its own log. With `all`, `batches.out` only shows the start and the end, so follow the
+logs:
+
+```bash
+R=/data/models/zj2398/femr/results
+tail -f $R/logs/batches_phenotype_*.log
+```
+
+Step 1 is finished when all 11 tasks say `ok` or `already built`, and none says `FAILED`:
+
+```bash
+grep -hE 'batches [a-z]+/.*: (ok|FAILED)|already built' $R/logs/batches_*.log
+```
+
+**Wait for step 1 to finish before starting step 2.** A model started too early finds no batches and
+builds the same ones itself; both jobs then use the same temporary folder, and one of them can crash.
+
+Good to know:
+
+- Rerunning a command is safe: tasks that are already built are skipped, so after a `FAILED` task just
+  run the same command again.
+- Batches are stored in `<HF_CACHE>/eval_batches/<family>_<task>_<key>/`. To rebuild a task, delete its
+  folder and rerun. The key changes with the tokenizer, ontology, labels and batch settings, so
+  changed labels get a new folder by themselves; delete the old one to free the disk.
+- Every task has a fixed start-up cost of several minutes, however small its cohort.
+- Memory depends on the number of workers, not on the size of the cohort. Each group has 24 reader
+  workers plus its `BATCH_WORKERS`, and a reader worker held 5.7 GB on MIMIC. Plan for up to about
+  900 GB for `all` with the default 28 (batch workers were not measured, so this assumes they cost the
+  same). The figure printed by `preflight.sh` assumes memory follows the size of the ontology, which
+  was not tested. If memory runs out, lower `BATCH_WORKERS` or run the groups one after the other.
+- `batches.sh` builds batches for the transformer models. A mamba model builds its own on its first
+  run, so run one mamba model first, as on MIMIC below.
+
+**MIMIC on GSB.** There is no separate step: the first model of a task builds its batches and saves
+them in `<HF_CACHE>/eval_batches/`, and later models load them. So run one model first, wait for it to
+finish, then run the others.
+
+### Step 2: run the models
+
+For each task, a model computes its features from the saved batches (GPU), then the probe is trained
+and scored (CPU).
 
 ```
 bash <launcher> <model> <family> [task1,task2]
@@ -70,79 +169,82 @@ bash <launcher> <model> <family> [task1,task2]
 - `<family>`: `outcome`, `phenotype`, `regression`, or `all` (the three, one after the other).
 - `[task1,task2]` (optional): only these tasks. Without it, every task of the family is run.
 
-Put settings in front of the command: `GPU=` picks the GPU (default 0), `NUM_PROC=` the CPU workers.
-
-**MIMIC on GSB**, motor, one family per GPU:
+Put settings in front of the command: `GPU=` picks the GPU (default 0), `NUM_PROC=` the CPU workers
+of this job (default 24). GPUs are shared, so check `nvidia-smi` before picking one. The examples use
+the CUMC launcher; for MIMIC only `L` changes:
 
 ```bash
-L=src/femr/evaluation/script/mimic/gsb/transformer.sh
+L=src/femr/evaluation/script/cumc/transformer.sh     # MIMIC: src/femr/evaluation/script/mimic/gsb/transformer.sh
+```
+
+**One model:**
+
+```bash
+GPU=0 nohup bash $L motor all > eval_motor.out 2>&1 &                          # all three families
+GPU=0 nohup bash $L motor outcome > eval_motor_outcome.out 2>&1 &              # one family
+GPU=0 nohup bash $L motor regression glucose,spo2 > eval_motor_lab.out 2>&1 &  # some tasks
+```
+
+**One model, faster:** one family per GPU.
+
+```bash
 GPU=0 nohup bash $L motor outcome    > eval_motor_outcome.out 2>&1 &
 GPU=1 nohup bash $L motor phenotype  > eval_motor_phenotype.out 2>&1 &
 GPU=2 nohup bash $L motor regression > eval_motor_regression.out 2>&1 &
 ```
 
-The same for every model: change only the model name (and the GPU).
-
-```bash
-GPU=3 nohup bash $L mtpp all > eval_mtpp.out 2>&1 &                 # all three families
-GPU=4 nohup bash $L ntp outcome readmission > eval_ntp.out 2>&1 &   # one task
-```
-
-All six models, one GPU each, all families:
+**Several models at once:** one model per GPU. List as many models as you have free GPUs, and leave
+out any model that is not trained yet (`ls <MODELS_ROOT>/*/transformer/best_model/config.json` shows
+the trained ones).
 
 ```bash
 gpu=0
-for m in ntp motor tpp mtpp icarefm survivehr; do
+for m in ntp motor tpp icarefm; do
   GPU=$gpu nohup bash $L $m all > eval_$m.out 2>&1 &
   gpu=$((gpu + 1))
 done
 ```
 
-**CUMC**: identical, with the CUMC launcher.
+**More models than GPUs:** give each GPU a queue. Every line is one GPU; its models run one after the
+other, and a model that fails does not stop the next one.
 
 ```bash
-L=src/femr/evaluation/script/cumc/transformer.sh
-GPU=0 nohup bash $L survivehr all > eval_survivehr.out 2>&1 &
+export L
+nohup bash -c 'for m in ntp survivehr; do GPU=0 bash $L $m all > eval_$m.out 2>&1; done' > /dev/null 2>&1 &
+nohup bash -c 'for m in motor mtpp;    do GPU=1 bash $L $m all > eval_$m.out 2>&1; done' > /dev/null 2>&1 &
+nohup bash -c 'for m in tpp;           do GPU=2 bash $L $m all > eval_$m.out 2>&1; done' > /dev/null 2>&1 &
+nohup bash -c 'for m in icarefm;       do GPU=3 bash $L $m all > eval_$m.out 2>&1; done' > /dev/null 2>&1 &
+```
+
+Models running at the same time do not disturb each other: each writes to its own folders, and the
+summary tables are rebuilt under a lock.
+
+**Follow the progress** in the `.out` files. The same output is also kept in
+`<RESULT_ROOT>/logs/<model>_<family>_<date>.log`, together with the git commit and exact command.
+Each task ends with `ok` or `FAILED`, and a failed task does not stop the other tasks:
+
+```bash
+grep -E ': (ok|FAILED)$' eval_*.out
+```
+
+**Check that the models used the shared batches.** Each task that computed features should print
+`Loading saved batches`, and `Got batches` should not appear, because it means the model built its own:
+
+```bash
+grep -c 'Loading saved batches' eval_motor.out    # one per task
+grep -l 'Got batches' eval_*.out                  # should print nothing
 ```
 
 **Mamba models**: use `mamba.sh` instead of `transformer.sh`. The model is read from
 `<MODELS_ROOT>/<model>/mamba/best_model` and its row in the tables is `<model>_mamba`.
 
-**Another checkpoint** (not the best one): give its path and a row name for the tables.
+**Another checkpoint** (not the best one): give its path and a row name for the tables. It uses the
+same batches if it has the same tokenizer.
 
 ```bash
 MODEL_PATH=/shared/share_mala/zilin/storage/ora/models/motor/transformer/checkpoint-47630 \
 TAG=motor_ckpt47630 GPU=0 bash $L motor outcome
 ```
-
-Follow the progress in the `.out` file. The same output is also kept in
-`<RESULT_ROOT>/logs/<model>_<family>_<date>.log`, together with the git commit and exact command.
-At the end, each task says `ok` or `FAILED`; a failed task does not stop the other tasks.
-
-**Saved batches.** Most of the time goes into turning patients into batches, and batches do not depend
-on the model weights. The first model of a task saves them in `<HF_CACHE>/eval_batches/`; later models
-with the same tokenizer load them (`preprocess_time` near 0), so run one model first and the others
-after it. Delete that folder to rebuild the batches.
-
-**CUMC: build the batches first.** On CUMC, build the batches of every task before evaluating any
-model, then run the models as usual; each one finds its batches already there. No GPU or trained model
-is needed: only the shared tokenizer in `META_DIR/tokenizer/`.
-
-```bash
-bash src/femr/evaluation/script/cumc/preflight.sh | tee preflight.txt   # read-only checks; fix every PROBLEM line
-nohup bash src/femr/evaluation/script/cumc/batches.sh all > batches.out 2>&1 &
-```
-
-`all` runs outcome, phenotype and regression at the same time, each with `BATCH_WORKERS` (default 28)
-workers and its own log, `<RESULT_ROOT>/logs/batches_<family>_<date>.log`. To run one family:
-`bash .../batches.sh regression`. A task that is already built is skipped. Batches are built for the
-transformer models; a mamba model builds its own on its first run.
-
-Memory depends on the number of workers, not on the cohort: every worker keeps its own copy of the
-tokenizer and ontology (5.7 GB per reader worker on MIMIC, so about 450 GB for the 72 reader workers
-of `all`). `preflight.sh` prints the estimate for this ontology. If it does not fit, lower
-`BATCH_WORKERS` or run the families one after the other. Each task also has a fixed start-up cost of
-several minutes, however small its cohort.
 
 ## 4. Results
 
@@ -275,6 +377,10 @@ trained on the train patients and scored on the test patients.
 | `no trained model at .../best_model` | This model is not pretrained yet (or the backbone is wrong). Train it first, or set `MODEL_PATH=`. |
 | `no cohort folder ...` | The task name is misspelled, or the cohort path in the env file is wrong. `ls` the cohort folder to see the task names. |
 | `<task>: FAILED` | Look above it in the log for the Python error. The other tasks still ran. |
+| `batches <family>/<task>: FAILED` | Look above it in `<RESULT_ROOT>/logs/batches_<family>_*.log` for the Python error, then rerun the same command: finished tasks are skipped. |
+| `no tokenizer at .../tokenizer` | The shared tokenizer is missing from `META_DIR`. Run the `tasks` step of the training launcher first. |
+| The machine runs out of memory during step 1 | Lower `BATCH_WORKERS`, or run the groups one after the other. |
+| A model log shows `Got batches` instead of `Loading saved batches` | The model did not find shared batches and built its own: step 1 was not finished for that task, its tokenizer differs from the shared one (`preflight.sh` shows this), or it is a mamba model. Results are still valid; it is only slower. |
 | CUDA out of memory | The GPU is shared with another job. Pick another `GPU=`. |
 | A number did not change after retraining a model | The old features were reused. Delete `<RESULT_ROOT>/<family>/_features/<model>/` and rerun. |
 | `ModuleNotFoundError: xgboost` | `pip install xgboost` in the `tte` env. |
