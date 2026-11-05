@@ -13,7 +13,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from femr.evaluation.baseline.meds_tab.generate_tabular_features import load_cohort
@@ -95,7 +94,7 @@ def check_task(kind: str, task_dir: Path, need: list, split: pd.DataFrame, tte_c
     for column in need:
         if column not in df.columns:
             problem(f"{kind}/{task_dir.name}: no column {column}; columns are {list(df.columns)}")
-    if "split_name" in df.columns:
+    if kind != "regression" and "split_name" in df.columns:  # regression does not go through run_all.py
         problem(f"{kind}/{task_dir.name}: a split_name column breaks labels.join(split) in run_all.py")
 
     subjects = df["subject_id"].nunique()
@@ -113,15 +112,6 @@ def check_task(kind: str, task_dir: Path, need: list, split: pd.DataFrame, tte_c
         print(f"  note: {unknown} rows have a subject outside main_split.csv and are not used")
     if in_test == 0:
         problem(f"{kind}/{task_dir.name}: no test rows")
-
-    # The MEDS-Tab featurizers read the labels with assume_sorted=True, in load_cohort's order.
-    ids = df["subject_id"].to_numpy()
-    same = ids[1:] == ids[:-1]
-    times = pd.to_datetime(df["prediction_time"]).to_numpy()
-    if int((~same).sum()) + 1 != subjects:
-        problem(f"{kind}/{task_dir.name}: rows of one subject are not next to each other")
-    if not np.all(times[1:][same] >= times[:-1][same]):
-        problem(f"{kind}/{task_dir.name}: prediction times are not sorted within a subject")
     return subjects
 
 

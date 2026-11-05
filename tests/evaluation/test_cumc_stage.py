@@ -7,6 +7,7 @@ import runpy
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest import mock
 
 import meds
@@ -14,6 +15,8 @@ import pandas as pd
 import pytest
 
 import femr.models.architecture.embedding as embedding
+from femr.evaluation.baseline.meds_tab.generate_tabular_features import sort_labels
+from femr.evaluation.baseline.meds_tab.meds_tab_featurizer import MedsTabNumericFeaturizer
 from femr.evaluation.common import preflight
 
 SCRIPT = pathlib.Path(embedding.__file__).parents[2] / "evaluation" / "script"
@@ -150,6 +153,32 @@ def write_cohorts(root, time_col="time_to_event"):
 def test_preflight_accepts_cumc_labels(tmp_path, monkeypatch):
     write_cohorts(tmp_path)
     assert run_preflight(tmp_path, monkeypatch) == (0, [])
+
+
+def test_preflight_accepts_labels_in_any_order(tmp_path, monkeypatch):
+    """Regression cohorts are randomly sampled, and every pipeline handles the order itself."""
+    write_cohorts(tmp_path)
+    for path in ("regression/glucose/glucose.parquet", "tte/AMI/train.parquet", "binary/AMI/train.parquet"):
+        shuffled = pd.read_parquet(tmp_path / path).iloc[[1, 2, 0]]
+        shuffled.to_parquet(tmp_path / path)
+    assert run_preflight(tmp_path, monkeypatch) == (0, [])
+
+
+def test_meds_tab_labels_see_no_future_events():
+    """Out of order, the Jan 3 label also counted the events of Jan 5 and Jan 9, with no error."""
+    day = lambda d: datetime.datetime(2020, 1, d)
+    events = [SimpleNamespace(time=day(d), code="glucose", numeric_value=100.0) for d in (1, 5, 9, 13)]
+    subject = SimpleNamespace(subject_id=1, events=events)
+    featurizer = MedsTabNumericFeaturizer(windows_days=(None,), min_support=0)
+    featurizer.encorperate_prepreprocessed_data([{"glucose": 4}])
+    labels = pd.DataFrame({"subject_id": [2, 1, 1], "prediction_time": [day(1), day(11), day(3)]})
+
+    ordered = sort_labels(labels)
+
+    assert list(ordered.index) == [0, 1, 2]  # map_with_data looks rows up by index label
+    assert ordered["subject_id"].tolist() == [1, 1, 2]
+    rows = featurizer.featurize(subject, list(ordered[ordered.subject_id == 1].itertuples(index=False)))
+    assert [row[0].value for row in rows] == [1, 3]  # code/count at Jan 3 and Jan 11
 
 
 def test_preflight_reports_a_missing_time_column_instead_of_crashing(tmp_path, monkeypatch):

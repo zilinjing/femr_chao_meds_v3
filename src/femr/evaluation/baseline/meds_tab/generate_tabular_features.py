@@ -139,6 +139,16 @@ def get_featurizer_name(label_name: str, observation_window: Optional[int] = Non
     return f"{label_name}_featurizer.pkl"
 
 
+def sort_labels(labels: pd.DataFrame) -> pd.DataFrame:
+    """Labels in the order the featurizers need: by subject, then by prediction time.
+
+    CountFeaturizer and MedsTabNumericFeaturizer walk a subject's events once while moving through
+    its labels, so a label placed after a later one would silently count the events in between,
+    which are in its future. The index is reset because map_with_data looks rows up by index label.
+    """
+    return labels.sort_values(["subject_id", "prediction_time"], kind="stable", ignore_index=True)
+
+
 def peak_rss_gb() -> float:
     """Peak resident set size of this process and its children, in GiB."""
     self_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -170,7 +180,7 @@ def main() -> None:
         print(f"Features already exist at {feature_output_path}; skipping.")
         return
 
-    labels = pd.read_parquet(label_path / f"{label_name}.parquet")
+    labels = sort_labels(pd.read_parquet(label_path / f"{label_name}.parquet"))
 
     t0 = time.perf_counter()
     with meds_reader.SubjectDatabase(args.meds_reader, num_threads=args.num_threads) as database:
