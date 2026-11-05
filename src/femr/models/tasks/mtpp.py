@@ -193,7 +193,8 @@ class MTPP_Task(Task):
             final_layer_size: int,
             value_count_threshold: int,
             codes_to_skip: List[str] = None,
-            num_value_bins: int = 10
+            num_value_bins: int = 10,
+            count_label_positions: bool = False,
     ) -> MTPP_Task:
         tasks = []
         print("using mtpp origin")
@@ -230,8 +231,8 @@ class MTPP_Task(Task):
                     f"censored={task_stats[0]}, events={task_stats[1]}, mean_time={task_stats[2].mean()}")
                 continue
 
-            # Raw numeric-only value count (not the label-position sample count).
-            value_sample_count = int(task_raw_value_counts[i])
+            # Raw numeric-only value count, or the label-position sample count (the older rule).
+            value_sample_count = len(task_value_samples[i].samples) if count_label_positions else int(task_raw_value_counts[i])
 
             if value_sample_count > 0:
                 # Numerical task - stricter filtering

@@ -168,7 +168,8 @@ def main(args):
                     final_layer_size=512,
                     codes_to_skip=codes_to_skip,
                     num_value_bins=args.value_bins,
-                    value_count_threshold=args.value_count_threshold
+                    value_count_threshold=args.value_count_threshold,
+                    count_label_positions=args.count_label_positions,
                 )
             elif args.loss_type == "mtpp_value":
                 print("mtpp_value choosen")
@@ -306,7 +307,7 @@ def main(args):
             raise ValueError(f"Unknown model type: {args.model}")
 
         if prepare_timing:
-            timing_path = pretraining_data_path / 'prepare_timing.json'
+            timing_path = pretraining_data_path / ('prepare_timing.json' if args.model in ("transformer", None) else f'prepare_timing_{args.model}.json')
             with open(timing_path, 'w') as f:
                 json.dump(prepare_timing, f)
             print(f"Prepare timing saved to {timing_path}")
@@ -398,6 +399,13 @@ def create_omop_meds_tutorial_argparser():
         type=int,
         default=None,
         help="Cap on MOTOR/TPP/MTPP tasks after filtering (default: no cap)",
+    )
+
+    parser.add_argument(
+        "--count_label_positions",
+        dest="count_label_positions",
+        action="store_true",
+        help="MTPP: apply --value_count_threshold to label-position value samples instead of raw values",
     )
 
     parser.add_argument(

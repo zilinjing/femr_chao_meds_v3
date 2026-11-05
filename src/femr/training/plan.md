@@ -126,10 +126,28 @@ v2 (current, with the Phase 4 fixes) in `/shared/share_mala/zilin/storage/ora/`:
 | `metadata/tokenizer` | v2: 13,098 entries = 8,390 code + 4,026 text + 682 numeric (`numeric_value` 468 bins, was 169; `order_id`/`link_order_id`/`emar_seq` 68 each) |
 | `models/<model>/tokenizer` | byte-identical copies, all six models |
 | `models/{ntp,icarefm,survivehr,motor}/*_task.pkl` | v2, done 22:30–22:48 |
-| `models/{tpp,mtpp}/*_task.pkl` | v2 refit started 23:04 (MTPP with the Q1 count) |
+| `models/{tpp,mtpp}/*_task.pkl` | v2, done 23:32 (TPP) and 01:11 (MTPP, after the merge fix below) |
 | batches | none yet |
 
-Check results v2: see "Stage A v2 check" below (filled in after the run).
+Check results v2 (`ora/models/check_tokenization_v2.txt`): all tokenizer copies identical; MOTOR = TPP =
+6,270; MTPP 7,129 (1,079 numeric + 6,050 non-numeric), MTPP non-numeric ⊆ TPP, MTPP adds 917 numeric codes
+and drops 58 TPP codes (codes with some numeric values but < 1000 raw values; v1 dropped 42: 14 of the 16
+new ones were v1 numeric tasks passing only through the label-position count, 2, e.g. `LAB//50920//UNK`
+with 1 value, were v1 non-numeric because their value never showed up at a label position; kept as the
+user's rule); NTP = SurvivEHR events = 8,390; ICareFM = SurvivEHR values = 1,081 ⊇ MTPP numeric (all
+1,079; the other 2, `INFUSION_START/END//225151`, fail MTPP's `frac_events < 1/1000`); 162 MTPP numeric
+codes also have value-less events (time-only events, Q2).
+
+Bugs found during the v2 run (fixed, with tests):
+- `mtpp._prefit_motor_agg` (Q1 change) assigned into a tuple (`first[3] += ...`) → `TypeError` in the
+  merge. meds_reader then hangs instead of failing (its shutdown joins workers still sending results), so
+  the run sat at 0% CPU without a traceback. Fixed with `np.add(..., out=...)`; test merges shard results.
+- `prepare.py`: `fail_fast(database)` wraps the meds_reader block: a dead worker or an exception in the
+  parent now prints the error, kills the workers and exits 1 (tested; without it a dead worker hangs).
+- Batch path smoke test (300 random MIMIC train subjects, real v2 tokenizer and tasks,
+  `convert_dataset(tokens_per_batch=16384, min_subjects_per_batch=2)`, then `collate` + task `cleanup` on
+  5 batches each): all six models passed (15–16 batches each, windows ≤ 8,192, batches ≤ 16,384 tokens).
+  ~10 min per model, almost all in the single-threaded HF fingerprinting of the batch generator.
 
 ### Next steps
 
