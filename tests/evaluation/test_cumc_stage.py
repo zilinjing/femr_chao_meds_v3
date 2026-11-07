@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import os
 import pathlib
+import pickle
 import runpy
 import shutil
 import subprocess
@@ -11,8 +12,10 @@ from types import SimpleNamespace
 from unittest import mock
 
 import meds
+import numpy as np
 import pandas as pd
 import pytest
+import scipy.sparse
 
 import femr.models.architecture.embedding as embedding
 from femr.evaluation.baseline.meds_tab.generate_tabular_features import sort_labels
@@ -73,6 +76,30 @@ def test_run_all_time_column(args, column, tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.syspath_prepend(str(RUN_ALL.parent))
     assert runpy.run_path(str(RUN_ALL), run_name="__main__")["TTE_COL"] == column
+
+
+def test_load_features_labels_sorts_the_columns_of_each_row(tmp_path, monkeypatch):
+    """xgboost 3.2 on the GPU silently trains bad models on rows with unsorted columns."""
+    monkeypatch.setattr(sys, "argv", [str(RUN_ALL), "--phenotypes", "--binary_only", "--results_dir", str(tmp_path)])
+    monkeypatch.syspath_prepend(str(RUN_ALL.parent))
+    load_features_labels = runpy.run_path(str(RUN_ALL), run_name="__main__")["load_features_labels"]
+
+    # Every row stores column 2 before column 0, as CountFeaturizer does: first seen comes first.
+    n = 10
+    matrix = scipy.sparse.csr_matrix((np.tile([5.0, 7.0], n), np.tile([2, 0], n), np.arange(0, 2 * n + 1, 2)),
+                                     shape=(n, 3))
+    subjects, times = np.arange(n), pd.date_range("2020-01-01", periods=n)
+    with open(tmp_path / "features.pkl", "wb") as f:
+        pickle.dump({"features": matrix, "subject_ids": subjects, "feature_times": times.to_numpy()}, f)
+    pd.DataFrame({"subject_id": subjects, "prediction_time": times, "boolean_value": True}).to_parquet(
+        tmp_path / "labels.parquet")
+    pd.DataFrame({"subject_id": subjects, "split_name": "train"}).to_csv(tmp_path / "split.csv", index=False)
+
+    X, _ = load_features_labels(str(tmp_path / "features.pkl"), str(tmp_path / "labels.parquet"),
+                                str(tmp_path / "split.csv"))
+
+    assert X.has_sorted_indices
+    assert X.toarray().tolist() == [[7.0, 0.0, 5.0]] * n
 
 
 def test_build_batches_passes_the_workers_and_only_the_wanted_tasks(tmp_path):

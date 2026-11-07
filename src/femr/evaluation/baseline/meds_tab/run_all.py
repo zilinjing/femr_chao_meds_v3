@@ -145,6 +145,9 @@ def load_features_labels(feature_path, label_path, split_path):
         labels = labels[pos >= 0]
         pos = pos[pos >= 0]
     X = features[pos]
+    # CountFeaturizer stores columns in first-seen order. xgboost 3.2 (the last version for Python
+    # 3.11) needs them sorted on the GPU: it trains bad models without any error otherwise.
+    X.sort_indices()
 
     split = pd.read_csv(split_path, index_col="subject_id")
     labels = labels.join(split)
